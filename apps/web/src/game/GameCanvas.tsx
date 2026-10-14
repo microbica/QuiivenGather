@@ -1,16 +1,19 @@
 import React from "react";
 import { Application, Container, Graphics, Text } from "pixi.js";
+import { CLIENT_SPEED, PLAYER_H, PLAYER_W } from "@quiiven/protocol";
 import {
   moveWithCollision,
   parseMap,
   zoneAt,
   type GameMap,
 } from "./mapLoader";
+import type { NetHandle } from "./useColyseus";
 
-const SPEED = 170; // px/s
-const BODY_W = 20;
-const BODY_H = 28;
+const SPEED = CLIENT_SPEED;
+const BODY_W = PLAYER_W;
+const BODY_H = PLAYER_H;
 const CHUNK_TILES = 8;
+const SEND_MS = 66; // ~15 Hz
 
 const KEYS: Record<string, { x: number; y: number }> = {
   KeyW: { x: 0, y: -1 },
@@ -31,6 +34,13 @@ interface Hud {
   anim: string;
   zone: string;
   chunks: string;
+}
+
+interface Remote {
+  c: Container;
+  label: Text;
+  cx: number;
+  cy: number;
 }
 
 function drawTile(g: Graphics, gid: number, px: number, py: number, t: number) {
@@ -73,8 +83,23 @@ function buildLayer(
   return chunks;
 }
 
-export function GameCanvas({ name = "Tú" }: { name?: string }) {
+function makeAvatar(color: number, name: string): { c: Container; label: Text; nub: Graphics } {
+  const c = new Container();
+  const body = new Graphics();
+  body.roundRect(0, 0, BODY_W, BODY_H, 6).fill({ color });
+  body.circle(BODY_W / 2, 8, 5).fill({ color: 0xd7e6ff });
+  const nub = new Graphics();
+  const label = new Text({ text: name, style: { fontSize: 12, fill: 0xffffff } });
+  label.anchor.set(0.5, 1);
+  label.position.set(BODY_W / 2, -4);
+  c.addChild(body, nub, label);
+  return { c, label, nub };
+}
+
+export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
+  const nameRef = React.useRef(name);
+  nameRef.current = name;
   const [hud, setHud] = React.useState<Hud>({
     fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", chunks: "—",
   });
@@ -97,12 +122,14 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
     };
     const downH = onKey(true);
     const upH = onKey(false);
+    const blurH = () => keys.clear();
     window.addEventListener("keydown", downH);
     window.addEventListener("keyup", upH);
-    window.addEventListener("blur", () => keys.clear());
+    window.addEventListener("blur", blurH);
     disposers.push(() => {
       window.removeEventListener("keydown", downH);
       window.removeEventListener("keyup", upH);
+      window.removeEventListener("blur", blurH);
     });
 
     (async () => {
@@ -134,20 +161,8 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
       const roofChunks = buildLayer(map, map.roof, roofC);
       const allChunks = [...groundChunks, ...wallChunks, ...roofChunks];
 
-      // Avatar placeholder: rounded body + facing nub + name.
-      const avatar = new Container();
-      const body = new Graphics();
-      body.roundRect(0, 0, BODY_W, BODY_H, 6).fill({ color: 0x4f8ff7 });
-      body.circle(BODY_W / 2, 8, 5).fill({ color: 0xd7e6ff });
-      const nub = new Graphics();
-      const label = new Text({
-        text: name,
-        style: { fontSize: 12, fill: 0xffffff },
-      });
-      label.anchor.set(0.5, 1);
-      label.position.set(BODY_W / 2, -4);
-      avatar.addChild(body, nub, label);
-      avatarC.addChild(avatar);
+      const local = makeAvatar(0x4f8ff7, nameRef.current);
+      avatarC.addChild(local.c);
 
       // Debug overlay: collisions (red) + zones (blue).
       const overlay = new Graphics();
@@ -171,10 +186,14 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
         y: map.spawn.y - BODY_H / 2,
       };
       const cam = { x: 0, y: 0 };
+      const remotes = new Map<string, Remote>();
       let dir = "down";
+      let anim: string = "idle";
       let lastHud = 0;
+      let lastSend = 0;
+      let lastSent = "";
 
-      const drawNub = () => {
+      const drawNub = (nub: Graphics) => {
         nub.clear();
         nub.fill({ color: 0x1d2c49 });
         if (dir === "up") nub.rect(BODY_W / 2 - 3, -3, 6, 5);
@@ -183,7 +202,7 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
         else nub.rect(BODY_W - 2, BODY_H / 2 - 3, 5, 6);
         nub.fill();
       };
-      drawNub();
+      drawNub(local.nub);
 
       app.ticker.add((ticker) => {
         const dt = Math.min(ticker.deltaMS / 1000, 0.05);
@@ -207,9 +226,49 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
           pos.x = next.x;
           pos.y = next.y;
           dir = Math.abs(vx) >= Math.abs(vy) ? (vx > 0 ? "right" : "left") : vy > 0 ? "down" : "up";
-          drawNub();
+          anim = "walk";
+          drawNub(local.nub);
+        } else {
+          anim = "idle";
         }
-        avatar.position.set(Math.round(pos.x), Math.round(pos.y));
+        if (local.label.text !== nameRef.current) local.label.text = nameRef.current;
+        local.c.position.set(Math.round(pos.x), Math.round(pos.y));
+
+        // Publish at ~15Hz when something changed (Fase 2: sin reconciliación).
+        const now = performance.now();
+        const snap = `${Math.round(pos.x)},${Math.round(pos.y)},${dir},${anim}`;
+        if (now - lastSend > SEND_MS && snap !== lastSent) {
+          lastSend = now;
+          lastSent = snap;
+          net.sendMove({ x: Math.round(pos.x), y: Math.round(pos.y), dir, anim });
+        }
+
+        // Remote avatars: create/update from room state + interpolate.
+        const room = net.getRoom();
+        if (room) {
+          room.state.players.forEach((p, id) => {
+            if (id === net.sessionId) return;
+            let r = remotes.get(id);
+            if (!r) {
+              const built = makeAvatar(0xf2a54a, p.name);
+              r = { c: built.c, label: built.label, cx: p.x, cy: p.y };
+              avatarC.addChild(r.c);
+              remotes.set(id, r);
+            }
+            if (r.label.text !== p.name) r.label.text = p.name;
+            const k = 1 - Math.exp(-12 * dt);
+            r.cx += (p.x - r.cx) * k;
+            r.cy += (p.y - r.cy) * k;
+            r.c.position.set(Math.round(r.cx), Math.round(r.cy));
+          });
+          for (const [id, r] of remotes) {
+            if (!room.state.players.get(id)) {
+              avatarC.removeChild(r.c);
+              r.c.destroy(true);
+              remotes.delete(id);
+            }
+          }
+        }
 
         // Follow camera with smoothing + clamp.
         const viewW = app!.screen.width;
@@ -233,7 +292,6 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
           if (inView) visible++;
         }
 
-        const now = performance.now();
         if (now - lastHud > 250) {
           lastHud = now;
           const z = zoneAt(cx, cy, map.zones);
@@ -242,7 +300,7 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
             x: Math.round(pos.x),
             y: Math.round(pos.y),
             dir,
-            anim: moving ? "walk" : "idle",
+            anim,
             zone: z ? `${z.label} (${z.kind})` : "—",
             chunks: `${visible}/${allChunks.length}`,
           });
@@ -258,7 +316,7 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
       app?.destroy(true);
       app = null;
     };
-  }, [debug, name]);
+  }, [debug, net]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden" }}>
@@ -270,7 +328,7 @@ export function GameCanvas({ name = "Tú" }: { name?: string }) {
           fontFamily: "system-ui", padding: "8px 12px", borderRadius: 8, lineHeight: 1.5,
         }}
       >
-        <div><strong>gatherQuiiven</strong> · Fase 1 · WASD / flechas · <code>?debug</code> colisiones</div>
+        <div><strong>gatherQuiiven</strong> · Fase 2 · WASD / flechas · <code>?debug</code> colisiones</div>
         <div>
           {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · chunks: {hud.chunks}
         </div>

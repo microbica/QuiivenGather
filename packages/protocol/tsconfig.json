@@ -2,6 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "experimentalDecorators": true,
+    // Required by @colyseus/schema: prototype getter/setter descriptors
+    // installed by @type() must not be shadowed by own class fields.
+    "useDefineForClassFields": false,
     "outDir": "dist",
     "rootDir": "src",
     "noEmit": false,

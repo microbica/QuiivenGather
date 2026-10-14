@@ -15,11 +15,11 @@ Decisiones base: React+TS+PixiJS, Colyseus, Lightsail, monorepo pnpm, auth real.
 - [x] Avatar placeholder (rect + nombre), 60fps, `?debug` muestra colisiones
 - DoD: 1 jugador se mueve sin atravesar paredes. Sin backend aún.
 
-## Fase 2 — Multiusuario Colyseus (3-5 días)
-- [ ] `packages/protocol`: `PlayerSchema`, `GameState`
-- [ ] `apps/server/src/rooms/GameRoom.ts`: join/spawn, `onMessage move` validado, patchRate 50ms, chat global
-- [ ] Cliente: `useColyseusRoom`, interpolación 100ms, lista jugadores, chat
-- DoD: 2 tabs se ven moverse <100ms LAN, sin rubber-banding severo.
+## Fase 2 — Multiusuario Colyseus (3-5 días) ✅ 2026-10-14
+- [x] `packages/protocol`: `PlayerSchema`, `GameState` + `ChatMessage` + consts (MAP, speeds, chat)
+- [x] `apps/server/src/rooms/GameRoom.ts`: join/spawn, `onMessage move` validado (anti-teleport), patchRate 50ms, chat global
+- [x] Cliente: `useColyseusRoom`, interpolación exponencial, lista jugadores, chat
+- DoD: 2 clientes se ven moverse (smoke PASS), sin rubber-banding severo.
 
 ## Fase 2.5 — Proximidad mock + zonas (2-3 días)
 - [ ] `useProximity(players, radiusTiles=5)`: distancia euclidiana, badge "en rango", lista "cerca de mí"
