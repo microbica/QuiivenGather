@@ -1,8 +1,9 @@
 /*
  * Quiiven brand layer for the virtual office UI.
  * Source: "Manual de identidad de marca Quiiven 2026".
- * Layout concept: the map is the stage; UI floats over it as carbon glass
- * panels anchored to the corners, with Yellow Sea reserved for actions.
+ * Layout concept: white canvas with the brand gradient glowing over it; the
+ * map is the stage and UI floats as white panels anchored to the corners,
+ * with Yellow Sea reserved for actions and Carbón for text.
  */
 
 @font-face {
@@ -35,22 +36,31 @@
   --q-orange: #ff7442; /* Personas y relaciones */
   --q-flame: #dd582f;
 
-  /* Neutrals derived from carbon (slight blue-violet bias) */
-  --q-ink: #1f1f25;
-  --q-surface: rgba(44, 44, 51, 0.92);
-  --q-surface-2: #383841;
-  --q-line: rgba(255, 255, 255, 0.09);
-  --q-text: #f5f5f7;
-  --q-text-2: #b4b4bf;
-  --q-text-3: #82828e;
+  /* White base; neutrals carry a slight carbon (blue-violet) bias */
+  --q-white: #ffffff;
+  --q-field: #f4f4f7;
+  --q-surface: rgba(255, 255, 255, 0.86);
+  --q-surface-2: #efeff3;
+  --q-surface-2-hover: #e4e4ea;
+  --q-line: rgba(44, 44, 51, 0.08);
+  --q-text: #2c2c33;
+  --q-text-2: #5c5c68;
+  --q-text-3: #8a8a96;
+
+  /* Brand gradient: diffuse color glow laid over white */
+  --q-gradient:
+    radial-gradient(60% 55% at 92% 8%, rgba(255, 174, 0, 0.55) 0, transparent 70%),
+    radial-gradient(45% 50% at 6% 96%, rgba(255, 116, 66, 0.4) 0, transparent 70%),
+    radial-gradient(40% 40% at 70% 100%, rgba(244, 197, 103, 0.45) 0, transparent 70%),
+    var(--q-white);
 
   /* Type: Cera Pro is the brand face; Montserrat is the manual's digital fallback */
   --q-font: "Cera Pro", "Montserrat", system-ui, sans-serif;
 
   --q-radius: 16px;
   --q-radius-sm: 10px;
-  --q-shadow: 0 12px 32px rgba(20, 20, 26, 0.28);
-  color-scheme: dark;
+  --q-shadow: 0 10px 30px rgba(44, 44, 51, 0.12), 0 1px 2px rgba(44, 44, 51, 0.06);
+  color-scheme: light;
 }
 
 html,
@@ -60,7 +70,8 @@ body,
   margin: 0;
 }
 body {
-  background: var(--q-carbon);
+  background: var(--q-gradient);
+  background-attachment: fixed;
   color: var(--q-text);
   font-family: var(--q-font);
   font-size: 14px;
@@ -124,7 +135,7 @@ input {
   white-space: nowrap;
 }
 .q-btn:hover {
-  background: #45454f;
+  background: var(--q-surface-2-hover);
 }
 .q-btn:active {
   transform: scale(0.97);
@@ -166,7 +177,7 @@ input {
 .q-input {
   flex: 1;
   min-width: 0;
-  background: var(--q-ink);
+  background: var(--q-field);
   color: var(--q-text);
   border: 1px solid var(--q-line);
   border-radius: 999px;
@@ -208,7 +219,7 @@ input {
   height: 9px;
   border-radius: 50%;
   background: var(--q-teal);
-  border: 2px solid var(--q-carbon);
+  border: 2px solid var(--q-white);
 }
 .q-chip {
   display: inline-flex;
@@ -298,7 +309,7 @@ input {
   z-index: 10;
   pointer-events: none;
   font: 11px/1.5 ui-monospace, monospace;
-  background: rgba(31, 31, 37, 0.8);
+  background: var(--q-surface);
   color: var(--q-text-2);
   padding: 6px 10px;
   border-radius: 8px;
@@ -324,7 +335,7 @@ input {
   display: block;
   font-size: 11px;
   font-weight: 500;
-  color: var(--q-yellow);
+  color: var(--q-flame);
 }
 
 /* ---------- Video tiles ---------- */
@@ -332,7 +343,7 @@ input {
   position: relative;
   border-radius: 12px;
   overflow: hidden;
-  background: var(--q-ink);
+  background: var(--q-carbon);
 }
 .q-video video {
   display: block;
@@ -346,7 +357,8 @@ input {
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(31, 31, 37, 0.75);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--q-text);
 }
 
 /* ---------- Modal ---------- */
@@ -382,7 +394,7 @@ input {
   overflow: auto;
 }
 .q-link {
-  color: var(--q-yellow);
+  color: var(--q-flame);
 }
 
 /* ---------- Login ---------- */
@@ -391,7 +403,7 @@ input {
   inset: 0;
   display: grid;
   grid-template-columns: minmax(360px, 1fr) 1.1fr;
-  background: var(--q-carbon);
+  background: var(--q-gradient);
 }
 .q-login__side {
   display: flex;
@@ -418,6 +430,9 @@ input {
   font-style: normal;
   color: var(--q-yellow);
 }
+.q-login__copy h1 {
+  color: var(--q-carbon);
+}
 .q-login__copy p {
   margin: 0 0 28px;
   font-size: 16px;
@@ -436,17 +451,12 @@ input {
 .q-login__art {
   position: relative;
   margin: 16px;
-  border-radius: 28px;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 78% 18%, var(--q-cream) 0, transparent 42%),
-    radial-gradient(circle at 12% 88%, var(--q-orange) 0, transparent 48%),
-    var(--q-yellow);
+  overflow: visible;
 }
 .q-login__art img {
   position: absolute;
   pointer-events: none;
-  filter: drop-shadow(0 30px 40px rgba(44, 44, 51, 0.25));
+  filter: drop-shadow(0 30px 40px rgba(229, 154, 5, 0.25));
 }
 .q-login__art .glass-1 {
   width: 62%;

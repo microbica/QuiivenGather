@@ -55,7 +55,7 @@ function LoginGate({
   return (
     <main className="q-login">
       <section className="q-login__side">
-        <img className="logo" src={`${asset}brand/logo-blanco.png`} alt="Quiiven" />
+        <img className="logo" src={`${asset}brand/logo-color.png`} alt="Quiiven" />
         <div className="q-login__copy">
           <h1>
             Nuestra oficina, <em>sin distancia.</em>

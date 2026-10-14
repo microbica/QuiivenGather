@@ -197,7 +197,8 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       if (cancelled) return;
 
       app = new Application();
-      await app.init({ background: "#2c2c33", resizeTo: mountRef.current!, antialias: true });
+      // Transparent canvas: the white + brand gradient page shows around the map.
+      await app.init({ backgroundAlpha: 0, resizeTo: mountRef.current!, antialias: true });
       if (cancelled) {
         app.destroy(true);
         return;
@@ -445,10 +446,10 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
   }, [debug, net]);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden", background: "var(--q-carbon)" }}>
+    <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden" }}>
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
       <div className="q-panel q-topbar">
-        <img src={`${import.meta.env.BASE_URL}brand/logo-blanco.png`} alt="Quiiven" />
+        <img src={`${import.meta.env.BASE_URL}brand/logo-color.png`} alt="Quiiven" />
         <span className="q-zone">
           {hud.zone === "—" ? "Área común" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
         </span>
