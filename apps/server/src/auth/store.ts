@@ -5,7 +5,16 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { TokenSet } from "./google.js";
 
-const FILE = join(process.cwd(), "data", "google-tokens.json");
+const DEFAULT_FILE = join(process.cwd(), "data", "google-tokens.json");
+let customFile: string | null = null;
+
+export function setTestTokenFile(p: string): void {
+  customFile = p;
+}
+
+function getFile(): string {
+  return customFile ?? DEFAULT_FILE;
+}
 
 function key(): Buffer {
   const hex = process.env.GOOGLE_TOKEN_KEY ?? "";
@@ -42,15 +51,15 @@ interface Stored {
 
 function readAll(): Record<string, Stored> {
   try {
-    return JSON.parse(readFileSync(FILE, "utf8")) as Record<string, Stored>;
+    return JSON.parse(readFileSync(getFile(), "utf8")) as Record<string, Stored>;
   } catch {
     return {};
   }
 }
 
 function writeAll(all: Record<string, Stored>): void {
-  mkdirSync(dirname(FILE), { recursive: true });
-  writeFileSync(FILE, JSON.stringify(all), { mode: 0o600 });
+  mkdirSync(dirname(getFile()), { recursive: true });
+  writeFileSync(getFile(), JSON.stringify(all), { mode: 0o600 });
 }
 
 export function saveTokens(

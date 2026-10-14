@@ -5,6 +5,7 @@ export interface GoogleStatus {
   linked: boolean;
   configured: boolean;
   authorized: boolean;
+  role: string;
   email?: string | null;
 }
 

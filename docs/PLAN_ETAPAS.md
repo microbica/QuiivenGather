@@ -63,6 +63,15 @@ en la TV Sala 1 (objeto `kind=meet`) en lugar del placeholder.
 - DoD: solo @quiiven.com entra; no autorizado ve pantalla de login y el server rechaza el join; build/lint/test verdes.
   Demo manual pendiente: flujo popup en navegador + crear Meet publicado + acceso denegado con otra cuenta.
 
+## Fase 6 — Rol admin + objetos editables (SQLite)
+- [x] `node:sqlite` (built-in Node 22, sin nativo): `data/gather.db` con tablas `users(role)` y `objects`
+- [x] Seed: `alejandro.moreno@quiiven.com` = admin por defecto (`GOOGLE_ADMIN_EMAIL`); objetos desde `objects.json`
+- [x] Protocolo: `GameObject` + `GameState.objects` (MapSchema, server autoritativo)
+- [x] Handlers admin: `obj-move` (drag en canvas), `obj-add` (duplicar), `obj-remove` (borrar) — todos validados server-side
+- [x] Web: `AdminPanel` (lista + duplicar/borrar), drag de marcadores ⌖ en `GameCanvas`, badge `[admin]` en GooglePanel
+- [x] Tests: seed admin, CRUD objetos, `isEmailAllowed`
+- DoD: admin mueve/duplica/borra objetos y todos los clientes ven los cambios en vivo. ✅
+
 ## Fase 5 — Prod Lightsail
 - [ ] Compose prod, Caddy/Nginx TLS, backups, Datadog/Grafana básico, hardening TURN
 - DoD: URL pública con 10 usuarios concurrentes estables.

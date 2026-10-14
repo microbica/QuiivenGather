@@ -1,5 +1,5 @@
 import React from "react";
-import { Application, Container, Graphics, Text } from "pixi.js";
+import { Application, Container, Graphics, Text, FederatedPointerEvent } from "pixi.js";
 import { CLIENT_SPEED, PLAYER_H, PLAYER_W } from "@quiiven/protocol";
 import {
   moveWithCollision,
@@ -8,7 +8,7 @@ import {
   type GameMap,
 } from "./mapLoader";
 import { distancePx, isConnected } from "./proximity";
-import { nearestObject, resolveObjects, type SmartObject } from "./objects";
+import { nearestObject, type SmartObject } from "./objects";
 import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
 
@@ -110,7 +110,15 @@ function paintRing(ring: Graphics, connected: boolean) {
     .stroke({ color: connected ? 0x51d88a : 0x5a6376, width: 2 });
 }
 
-export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
+interface ObjMarker {
+  c: Container;
+  id: string;
+  label: Text;
+  baseX: number;
+  baseY: number;
+}
+
+export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   const nameRef = React.useRef(name);
   nameRef.current = name;
@@ -120,6 +128,16 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
   onObjectRef.current = onObject;
   const audioRef = React.useRef(audio);
   audioRef.current = audio;
+  const objectsRef = React.useRef(objects);
+  objectsRef.current = objects;
+  const isAdminRef = React.useRef(isAdmin);
+  isAdminRef.current = isAdmin;
+  const adminModeRef = React.useRef(adminMode);
+  adminModeRef.current = adminMode;
+  const rebuildRef = React.useRef<() => void>(() => undefined);
+  React.useEffect(() => {
+    rebuildRef.current();
+  }, [objects, isAdmin, adminMode]);
   const [hud, setHud] = React.useState<Hud>({
     fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", near: 0, chunks: "—",
   });
@@ -157,10 +175,6 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       const res = await fetch(mapUrl);
       if (!res.ok) throw new Error(`map fetch failed: ${mapUrl}`);
       const map = parseMap(await res.json());
-      const objects = resolveObjects(
-        await fetch("/objects.json").then((r) => (r.ok ? r.json() : [])),
-        import.meta.env.VITE_MEET_URL ?? "",
-      );
       if (cancelled) return;
 
       app = new Application();
@@ -172,6 +186,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       mountRef.current!.appendChild(app.canvas);
 
       const world = new Container();
+      app.stage.eventMode = "static";
       app.stage.addChild(world);
 
       const groundC = new Container();
@@ -185,18 +200,69 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       const roofChunks = buildLayer(map, map.roof, roofC);
       const allChunks = [...groundChunks, ...wallChunks, ...roofChunks];
 
-      // Smart Object markers (amber) so they are discoverable on the map.
-      for (const o of objects) {
-        const m = new Graphics();
-        m.rect(o.x, o.y, o.w, o.h).stroke({ color: 0xf2c14a, width: 2 });
-        const t = new Text({
-          text: `⌖ ${o.label}`,
-          style: { fontSize: 11, fill: 0xf2c14a },
-        });
-        t.position.set(o.x, o.y - 14);
-        m.addChild(t);
-        objectC.addChild(m);
-      }
+      const objMarkers = new Map<string, ObjMarker>();
+      let dragState: { id: string; offsetX: number; offsetY: number } | null = null;
+
+      const rebuildMarkers = () => {
+        const objs = objectsRef.current;
+        const mode = adminModeRef.current;
+        for (const [, m] of objMarkers) {
+          objectC.removeChild(m.c);
+          m.c.destroy({ children: true });
+        }
+        objMarkers.clear();
+        for (const o of objs) {
+          const c = new Container();
+          c.eventMode = mode ? "static" : "none";
+          c.position.set(o.x, o.y);
+          const rect = new Graphics();
+          rect.rect(0, 0, o.w, o.h).fill({ color: 0x2a3040, alpha: 0.6 }).stroke({ color: 0xf2c14a, width: 2 });
+          const label = new Text({
+            text: `⌖ ${o.label}${isAdmin ? " ✋" : ""}`,
+            style: { fontSize: 11, fill: 0xf2c14a },
+          });
+          label.position.set(0, -14);
+          c.addChild(rect, label);
+          if (mode) {
+            c.cursor = "grab";
+            c.on("pointerdown", (e: FederatedPointerEvent) => {
+              // e.global = screen coords; worldX = screen + cam (world está en -cam)
+              const worldX = e.global.x + cam.x;
+              const worldY = e.global.y + cam.y;
+              dragState = { id: o.id, offsetX: worldX - o.x, offsetY: worldY - o.y };
+              c.cursor = "grabbing";
+            });
+          }
+          objectC.addChild(c);
+          objMarkers.set(o.id, { c, id: o.id, label, baseX: o.x, baseY: o.y });
+        }
+      };
+      rebuildRef.current = rebuildMarkers;
+      rebuildMarkers();
+
+      app.stage.on("pointermove", (e: FederatedPointerEvent) => {
+        if (!dragState || !adminModeRef.current) return;
+        const m = objMarkers.get(dragState.id);
+        if (!m) return;
+        const worldX = e.global.x + cam.x;
+        const worldY = e.global.y + cam.y;
+        const nx = Math.round(worldX - dragState.offsetX);
+        const ny = Math.round(worldY - dragState.offsetY);
+        m.c.position.set(nx, ny);
+        m.baseX = nx;
+        m.baseY = ny;
+        const live = objectsRef.current.find((x) => x.id === m.id);
+        if (live) { live.x = nx; live.y = ny; }
+      });
+
+      app.stage.on("pointerup", () => {
+        if (dragState && adminModeRef.current) {
+          const m = objMarkers.get(dragState.id);
+          if (m) net.sendObjMove(m.id, m.baseX, m.baseY);
+          dragState = null;
+          for (const [, mk] of objMarkers) mk.c.cursor = "grab";
+        }
+      });
 
       const local = makeAvatar(0x4f8ff7, nameRef.current);
       avatarC.addChild(local.c);
@@ -371,7 +437,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
           lastHud = now;
           audioRef.current?.setRadius(radiusPx);
           // Smart Object enter/leave (Fase 4).
-          const near = nearestObject({ x: cx, y: cy }, objects);
+          const near = nearestObject({ x: cx, y: cy }, objectsRef.current);
           const nearId = near?.id ?? null;
           if (nearId !== lastObjectId) {
             lastObjectId = nearId;

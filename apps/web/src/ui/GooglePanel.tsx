@@ -14,9 +14,12 @@ interface Props {
   net: NetHandle;
   /** Reporta los eventos del calendario para que la TV los ofrezca. */
   onEvents?: (events: CalendarEvent[]) => void;
+  /** Admin local toggle: true = modo edición (arrastrar objetos), false = modo normal. */
+  adminMode?: boolean;
+  onAdminModeChange?: (enabled: boolean) => void;
 }
 
-export function GooglePanel({ net, onEvents }: Props) {
+export function GooglePanel({ net, onEvents, adminMode = false, onAdminModeChange }: Props) {
   const [status, setStatus] = React.useState<GoogleStatus | null>(null);
   const [events, setEvents] = React.useState<CalendarEvent[]>([]);
   const [busy, setBusy] = React.useState(false);
@@ -100,7 +103,22 @@ export function GooglePanel({ net, onEvents }: Props) {
         </button>
       ) : (
         <>
-          <p style={{ fontSize: 12 }}>Vinculado: {status.email}</p>
+          <p style={{ fontSize: 12 }}>
+            Vinculado: {status.email}{" "}
+            {status.role === "admin" && (
+              <span style={{ color: "#f2c14a", fontWeight: 700 }}>[admin]</span>
+            )}
+          </p>
+          {status.role === "admin" && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 8, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={adminMode}
+                onChange={(e) => onAdminModeChange?.(e.target.checked)}
+              />
+              Modo edición (arrastrar objetos)
+            </label>
+          )}
           <button onClick={onUnlink} style={{ fontSize: 12 }}>
             Desvincular
           </button>

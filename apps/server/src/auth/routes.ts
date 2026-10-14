@@ -18,6 +18,7 @@ import {
   setCookieHeader,
 } from "./sessions.js";
 import { deleteTokens, getTokens, saveTokens } from "./store.js";
+import { getRole, upsertUser } from "../db.js";
 
 const pendingState = new Map<string, number>(); // state -> expiry ms
 
@@ -108,6 +109,7 @@ export function googleRouter(): Router {
         tokens,
         tokens.refresh_token ?? prev?.refreshToken,
       );
+      upsertUser(profile.email);
       const sessionId = createSession(profile.sub);
       const secure = webOrigin().startsWith("https://");
       res.setHeader("Set-Cookie", setCookieHeader(sessionId, secure));
@@ -128,7 +130,12 @@ export function googleRouter(): Router {
     }
     const t = getTokens(sub);
     const authorized = !!t && isEmailAllowed(t.email);
-    res.json({ linked: !!t, email: t?.email ?? null, authorized });
+    res.json({
+      linked: !!t,
+      email: t?.email ?? null,
+      authorized,
+      role: t ? getRole(t.email) : "user",
+    });
   });
 
   r.post("/auth/google/unlink", (req, res) => {

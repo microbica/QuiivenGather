@@ -30,9 +30,27 @@ export class ChatMessage extends Schema {
   @type("number") ts = 0;
 }
 
+/**
+ * Objeto inteligente del mapa (Fase 6). Server autoritativo (sqlite): el admin
+ * puede moverlo, duplicarlo o borrarlo y se propaga a todos en vivo.
+ */
+export class GameObject extends Schema {
+  @type("string") id = "";
+  @type("string") label = "";
+  @type("string") kind = "board";
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") w = 0;
+  @type("number") h = 0;
+  @type("number") radius = 0;
+  @type("string") url = "";
+}
+
 export class GameState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([ChatMessage]) messages = new ArraySchema<ChatMessage>();
   /** Meet en vivo publicado por un usuario vinculado (Fase 4.5). "" = ninguno. */
   @type("string") meetUrl = "";
+  /** Objetos inteligentes del mapa (Fase 6). Mutables solo por admin. */
+  @type({ map: GameObject }) objects = new MapSchema<GameObject>();
 }

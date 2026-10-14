@@ -7,6 +7,7 @@ import { Sidebar } from "./ui/Sidebar";
 import { SmartObjectModal } from "./ui/SmartObjectModal";
 import { VoicePanel } from "./ui/VoicePanel";
 import { GooglePanel } from "./ui/GooglePanel";
+import { AdminPanel } from "./ui/AdminPanel";
 import type { CalendarEvent } from "./api/google";
 import { getStatus, startOAuth, type GoogleStatus } from "./api/google";
 
@@ -103,11 +104,12 @@ function LoginGate({ onAuthorized }: { onAuthorized: (s: GoogleStatus) => void }
 }
 
 /** Juego una vez autenticado. */
-function GameApp({ name }: { name: string }) {
+function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   const [nearby, setNearby] = React.useState<string[]>([]);
   const [activeObject, setActiveObject] = React.useState<SmartObject | null>(null);
   const [calendarMeets, setCalendarMeets] = React.useState<CalendarEvent[]>([]);
-  const { status, roster, messages, sendChat, net, meetUrl } = useColyseusRoom(name);
+  const [adminMode, setAdminMode] = React.useState(false);
+  const { status, roster, messages, sendChat, net, meetUrl, objects } = useColyseusRoom(name);
   const voice = useMeshVoice(net);
 
   const onNearby = React.useCallback((ids: string[]) => setNearby(ids), []);
@@ -152,8 +154,9 @@ function GameApp({ name }: { name: string }) {
         onToggleAudio={voice.toggleAudio}
         onToggleVideo={voice.toggleVideo}
       />
-      <GooglePanel net={net} onEvents={setCalendarMeets} />
-      <GameCanvas name={name} net={net} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
+      <GooglePanel net={net} onEvents={setCalendarMeets} adminMode={adminMode} onAdminModeChange={setAdminMode} />
+      {isAdmin && <AdminPanel net={net} objects={objects} />}
+      <GameCanvas name={name} net={net} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
       {activeObject && (
         <SmartObjectModal
           obj={activeObject}
@@ -173,5 +176,5 @@ export function App() {
   if (!auth || !auth.authorized) {
     return <LoginGate onAuthorized={setAuth} />;
   }
-  return <GameApp name={displayName(auth.email ?? "user")} />;
+  return <GameApp name={displayName(auth.email ?? "user")} isAdmin={auth.role === "admin"} />;
 }
