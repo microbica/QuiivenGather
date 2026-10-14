@@ -31,21 +31,15 @@ function Video({
     if (ref.current) ref.current.srcObject = stream;
   }, [stream]);
   return (
-    <div style={{ textAlign: "center" }}>
+    <div className="q-video">
       <video
         ref={ref}
         autoPlay
         playsInline
         muted={muted}
-        style={{
-          width: small ? 96 : 160,
-          height: small ? 72 : 120,
-          background: "#000",
-          borderRadius: 8,
-          objectFit: "cover",
-        }}
+        style={{ width: small ? 112 : 176, height: small ? 84 : 132 }}
       />
-      <div style={{ fontSize: 11 }}>{label}</div>
+      <span>{label}</span>
     </div>
   );
 }
@@ -57,43 +51,50 @@ export function VoicePanel(props: Props) {
   } = props;
 
   return (
-    <div
-      style={{
-        position: "absolute", bottom: 12, left: 12, zIndex: 10,
-        background: "rgba(10,12,18,0.82)", color: "#e8ecf4", fontSize: 13,
-        fontFamily: "system-ui", borderRadius: 8, padding: "8px 10px",
-        maxWidth: "calc(100vw - 300px)",
-      }}
-    >
-      {!supported && <div>WebRTC no soportado en este navegador.</div>}
+    <div className="q-panel q-dock">
+      {!supported && <div className="q-small">Tu navegador no permite voz ni video.</div>}
       {supported && !active && (
-        <button onClick={onStart} style={{ cursor: "pointer", padding: "6px 12px" }}>
-          🎙 Activar voz/video (máx 5 por proximidad)
+        <button className="q-btn q-btn--primary" onClick={onStart}>
+          🎙 Activar micrófono y cámara
         </button>
       )}
       {supported && active && (
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <button onClick={onToggleAudio} style={{ cursor: "pointer" }}>
-              {mutedAudio ? "🔇 mic off" : "🎤 mic on"}
+            <button
+              className="q-btn q-btn--icon"
+              onClick={onToggleAudio}
+              aria-label={mutedAudio ? "Activar micrófono" : "Silenciar micrófono"}
+              title={mutedAudio ? "Activar micrófono" : "Silenciar micrófono"}
+              style={mutedAudio ? { background: "var(--q-flame)" } : undefined}
+            >
+              {mutedAudio ? "🔇" : "🎤"}
             </button>
-            <button onClick={onToggleVideo} style={{ cursor: "pointer" }}>
-              {mutedVideo ? "📷 cam off" : "📹 cam on"}
+            <button
+              className="q-btn q-btn--icon"
+              onClick={onToggleVideo}
+              aria-label={mutedVideo ? "Encender cámara" : "Apagar cámara"}
+              title={mutedVideo ? "Encender cámara" : "Apagar cámara"}
+              style={mutedVideo ? { background: "var(--q-flame)" } : undefined}
+            >
+              {mutedVideo ? "📷" : "📹"}
             </button>
-            <button onClick={onStop} style={{ cursor: "pointer" }}>⏹ salir</button>
+            <button className="q-btn q-btn--icon" onClick={onStop} aria-label="Salir de la llamada" title="Salir de la llamada">
+              ⏹
+            </button>
           </div>
-          {localStream && <Video stream={localStream} label="tú" muted small />}
+          {localStream && <Video stream={localStream} label="Tú" muted small />}
           {[...remoteStreams.entries()].map(([id, s]) => (
             <Video key={id} stream={s} label={peerNames.get(id) ?? id.slice(0, 4)} />
           ))}
           {remoteStreams.size === 0 && (
-            <div style={{ opacity: 0.6, alignSelf: "center" }}>
-              acércate a alguien para conectar…
+            <div className="q-small q-muted" style={{ maxWidth: 160 }}>
+              Acércate a alguien para conectar (hasta 5 personas).
             </div>
           )}
-        </div>
+        </>
       )}
-      {error && <div style={{ color: "#ff8888" }}>{error}</div>}
+      {error && <div className="q-small" style={{ color: "var(--q-orange)" }}>{error}</div>}
     </div>
   );
 }

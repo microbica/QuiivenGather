@@ -49,16 +49,29 @@ interface Remote {
   connected: boolean;
 }
 
+// Brand palette for the map (manual Quiiven 2026): light neutral floor,
+// Carbón walls with a Yellow Sea edge, Yellow Sea rugs.
+const MAP = {
+  floorA: 0xf1f1f4,
+  floorB: 0xe9e9ee,
+  wall: 0x2c2c33,
+  wallTop: 0x4a4a55,
+  wallEdge: 0xffae00,
+  rug: 0xffae00,
+  rugTop: 0xf4c567,
+  object: 0xe59a05,
+} as const;
+
 function drawTile(g: Graphics, gid: number, px: number, py: number, t: number) {
   if (gid === 1) {
-    g.rect(px, py, t, t).fill({ color: (px / t + py / t) % 2 === 0 ? 0x262c38 : 0x222834 });
+    g.rect(px, py, t, t).fill({ color: (px / t + py / t) % 2 === 0 ? MAP.floorA : MAP.floorB });
   } else if (gid === 2) {
-    g.rect(px, py, t, t).fill({ color: 0x4a5265 });
-    g.rect(px, py, t, 5).fill({ color: 0x707a94 });
-    g.rect(px, py + t - 3, t, 3).fill({ color: 0x333948 });
+    g.rect(px, py, t, t).fill({ color: MAP.wall });
+    g.rect(px, py, t, 6).fill({ color: MAP.wallTop });
+    g.rect(px, py + t - 2, t, 2).fill({ color: MAP.wallEdge });
   } else if (gid === 3) {
-    g.rect(px, py, t, t).fill({ color: 0x8a5f3c, alpha: 0.92 });
-    g.rect(px, py, t, 4).fill({ color: 0xb98a5a, alpha: 0.92 });
+    g.roundRect(px + 1, py + 1, t - 2, t - 2, 4).fill({ color: MAP.rug, alpha: 0.9 });
+    g.rect(px + 1, py + 1, t - 2, 3).fill({ color: MAP.rugTop, alpha: 0.9 });
   }
 }
 
@@ -89,6 +102,14 @@ function buildLayer(
   return chunks;
 }
 
+const pillFitters = new WeakMap<Text, () => void>();
+
+/** Updates a name label and resizes its background pill. */
+function setLabel(label: Text, text: string) {
+  label.text = text;
+  pillFitters.get(label)?.();
+}
+
 function makeAvatar(color: number, name: string): { c: Container; label: Text; nub: Graphics; ring: Graphics } {
   const c = new Container();
   const body = new Graphics();
@@ -96,10 +117,22 @@ function makeAvatar(color: number, name: string): { c: Container; label: Text; n
   body.circle(BODY_W / 2, 8, 5).fill({ color: 0xd7e6ff });
   const nub = new Graphics();
   const ring = new Graphics();
-  const label = new Text({ text: name, style: { fontSize: 12, fill: 0xffffff } });
+  const label = new Text({
+    text: name,
+    style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 12, fontWeight: "500", fill: 0xffffff },
+    resolution: 2,
+  });
   label.anchor.set(0.5, 1);
-  label.position.set(BODY_W / 2, -4);
-  c.addChild(body, nub, ring, label);
+  label.position.set(BODY_W / 2, -7);
+  // Carbon pill behind the name so it reads on the light floor.
+  const pill = new Graphics();
+  const fitPill = () => {
+    const w = label.width + 14;
+    pill.clear().roundRect(BODY_W / 2 - w / 2, -7 - label.height - 3, w, label.height + 6, 9).fill({ color: 0x2c2c33, alpha: 0.88 });
+  };
+  fitPill();
+  pillFitters.set(label, fitPill);
+  c.addChild(body, nub, ring, pill, label);
   return { c, label, nub, ring };
 }
 
@@ -107,7 +140,7 @@ function paintRing(ring: Graphics, connected: boolean) {
   ring.clear();
   ring
     .roundRect(-4, -4, BODY_W + 8, BODY_H + 8, 8)
-    .stroke({ color: connected ? 0x51d88a : 0x5a6376, width: 2 });
+    .stroke({ color: connected ? 0x18d3b8 : 0x2c2c33, width: 2, alpha: connected ? 1 : 0 });
 }
 
 export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
@@ -153,18 +186,18 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
     });
 
     (async () => {
-      const mapUrl = import.meta.env.VITE_MAP_DEFAULT ?? "/maps/demo.tmj";
+      const mapUrl = import.meta.env.VITE_MAP_DEFAULT ?? `${import.meta.env.BASE_URL}maps/demo.tmj`;
       const res = await fetch(mapUrl);
       if (!res.ok) throw new Error(`map fetch failed: ${mapUrl}`);
       const map = parseMap(await res.json());
       const objects = resolveObjects(
-        await fetch("/objects.json").then((r) => (r.ok ? r.json() : [])),
+        await fetch(`${import.meta.env.BASE_URL}objects.json`).then((r) => (r.ok ? r.json() : [])),
         import.meta.env.VITE_MEET_URL ?? "",
       );
       if (cancelled) return;
 
       app = new Application();
-      await app.init({ background: "#14161c", resizeTo: mountRef.current! });
+      await app.init({ background: "#2c2c33", resizeTo: mountRef.current!, antialias: true });
       if (cancelled) {
         app.destroy(true);
         return;
@@ -188,12 +221,15 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       // Smart Object markers (amber) so they are discoverable on the map.
       for (const o of objects) {
         const m = new Graphics();
-        m.rect(o.x, o.y, o.w, o.h).stroke({ color: 0xf2c14a, width: 2 });
+        m.roundRect(o.x, o.y, o.w, o.h, 6)
+          .fill({ color: MAP.rug, alpha: 0.18 })
+          .stroke({ color: MAP.object, width: 2 });
         const t = new Text({
-          text: `⌖ ${o.label}`,
-          style: { fontSize: 11, fill: 0xf2c14a },
+          text: `✦ ${o.label}`,
+          style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 11, fontWeight: "700", fill: 0x2c2c33 },
+          resolution: 2,
         });
-        t.position.set(o.x, o.y - 14);
+        t.position.set(o.x + 2, o.y - 16);
         m.addChild(t);
         objectC.addChild(m);
       }
@@ -274,7 +310,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
         } else {
           anim = "idle";
         }
-        if (local.label.text !== nameRef.current) local.label.text = nameRef.current;
+        if (local.label.text !== nameRef.current) setLabel(local.label, nameRef.current);
         local.c.position.set(Math.round(pos.x), Math.round(pos.y));
 
         // Publish at ~15Hz when something changed (pos/dir/anim/zone).
@@ -306,7 +342,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
               avatarC.addChild(r.c);
               remotes.set(id, r);
             }
-            if (r.label.text !== p.name) r.label.text = p.name;
+            if (r.label.text !== p.name) setLabel(r.label, p.name);
             const k = 1 - Math.exp(-12 * dt);
             r.cx += (p.x - r.cx) * k;
             r.cy += (p.y - r.cy) * k;
@@ -409,20 +445,19 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
   }, [debug, net]);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden" }}>
+    <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden", background: "var(--q-carbon)" }}>
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
-      <div
-        style={{
-          position: "absolute", top: 12, left: 12, pointerEvents: "none",
-          background: "rgba(10,12,18,0.72)", color: "#e8ecf4", fontSize: 13,
-          fontFamily: "system-ui", padding: "8px 12px", borderRadius: 8, lineHeight: 1.5,
-        }}
-      >
-        <div><strong>gatherQuiiven</strong> · Fase 2.5 · WASD / flechas · <code>?debug</code> colisiones</div>
-        <div>
+      <div className="q-panel q-topbar">
+        <img src={`${import.meta.env.BASE_URL}brand/logo-blanco.png`} alt="Quiiven" />
+        <span className="q-zone">
+          {hud.zone === "—" ? "Área común" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
+        </span>
+      </div>
+      {debug && (
+        <div className="q-debug">
           {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · cerca: {hud.near} · chunks: {hud.chunks}
         </div>
-      </div>
+      )}
     </div>
   );
 }

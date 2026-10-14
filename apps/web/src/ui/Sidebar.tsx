@@ -4,6 +4,7 @@ import type {
   NetStatus,
   RosterEntry,
 } from "../game/useColyseus";
+import { initials, personColor } from "./people";
 
 interface Props {
   status: NetStatus;
@@ -11,22 +12,19 @@ interface Props {
   nearby: string[];
   messages: ChatEntry[];
   name: string;
+  /** Kept for API compatibility; renaming is not exposed in the UI yet. */
   onName: (n: string) => void;
   sendChat: (text: string) => void;
 }
 
-const panel: React.CSSProperties = {
-  background: "rgba(10,12,18,0.82)",
-  color: "#e8ecf4",
-  fontSize: 13,
-  fontFamily: "system-ui",
-  borderRadius: 8,
-  padding: "8px 10px",
+const STATUS_LABEL: Record<NetStatus, string> = {
+  online: "En línea",
+  connecting: "Conectando…",
+  offline: "Sin conexión",
 };
 
-export function Sidebar({ status, roster, nearby, messages, name, onName, sendChat }: Props) {
+export function Sidebar({ status, roster, nearby, messages, name, sendChat }: Props) {
   const [draft, setDraft] = React.useState("");
-  const [nameDraft, setNameDraft] = React.useState(name);
   const chatEnd = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -40,69 +38,63 @@ export function Sidebar({ status, roster, nearby, messages, name, onName, sendCh
     setDraft("");
   };
 
+  // Show self even before the server answers, so the list is never empty.
+  const people: RosterEntry[] =
+    roster.length > 0 ? roster : [{ id: "self", name, self: true }];
+  const sorted = [...people].sort(
+    (a, b) =>
+      Number(b.self) - Number(a.self) ||
+      Number(nearby.includes(b.id)) - Number(nearby.includes(a.id)),
+  );
+
   return (
-    <aside
-      style={{
-        position: "absolute", top: 12, right: 12, width: 250, zIndex: 10,
-        display: "flex", flexDirection: "column", gap: 8, maxHeight: "calc(100vh - 24px)",
-      }}
-    >
-      <div style={panel}>
-        <div>
-          server: <strong>{status}</strong> · {roster.length} en sala
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (nameDraft.trim()) onName(nameDraft.trim());
-          }}
-          style={{ display: "flex", gap: 6, marginTop: 6 }}
-        >
-          <input
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            maxLength={24}
-            placeholder="tu nombre"
-            style={{ flex: 1, minWidth: 0, background: "#1a1f2b", color: "#fff", border: "1px solid #333c52", borderRadius: 6, padding: "4px 8px" }}
-          />
-          <button type="submit" style={{ cursor: "pointer" }}>OK</button>
-        </form>
-      </div>
+    <>
+      <section className="q-panel" style={{ maxHeight: 260, overflowY: "auto" }}>
+        <h3 className="q-eyebrow">
+          <span>En la oficina · {roster.length || 1}</span>
+          <span className="q-chip">
+            <span className={`q-dot q-dot--${status}`} />
+            {STATUS_LABEL[status]}
+          </span>
+        </h3>
+        {sorted.map((r) => {
+          const near = nearby.includes(r.id);
+          return (
+            <div key={r.id} className="q-person">
+              <span
+                className="q-avatar"
+                data-near={near}
+                style={{ background: personColor(r.name) }}
+              >
+                {initials(r.name)}
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                {r.name}
+                {r.self && <span className="q-muted"> (tú)</span>}
+              </span>
+              {near && <span className="q-small" style={{ color: "var(--q-teal)" }}>cerca</span>}
+            </div>
+          );
+        })}
+        {nearby.length === 0 && (
+          <p className="q-small q-muted" style={{ margin: "8px 0 0" }}>
+            Acércate a alguien en el mapa para hablar.
+          </p>
+        )}
+      </section>
 
-      <div style={{ ...panel, maxHeight: 140, overflowY: "auto" }}>
-        <strong>Jugadores</strong>
-        <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
-          {roster.map((r) => (
-            <li key={r.id}>
-              {nearby.includes(r.id) ? "🟢 " : "⚪ "}
-              {r.name}
-              {r.self ? " (tú)" : ""}
-            </li>
-          ))}
-          {roster.length === 0 && <li>—</li>}
-        </ul>
-      </div>
-
-      <div style={{ ...panel, maxHeight: 110, overflowY: "auto" }}>
-        <strong>Cerca de mí (mock proximidad)</strong>
-        <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
-          {nearby.map((id) => {
-            const r = roster.find((x) => x.id === id);
-            return <li key={id}>{r ? r.name : id.slice(0, 4)}</li>;
-          })}
-          {nearby.length === 0 && <li style={{ opacity: 0.6 }}>nadie en rango…</li>}
-        </ul>
-      </div>
-
-      <div style={{ ...panel, display: "flex", flexDirection: "column", minHeight: 120, maxHeight: 300 }}>
-        <strong>Chat global</strong>
-        <div style={{ overflowY: "auto", flex: 1, margin: "4px 0" }}>
+      <section className="q-panel q-chat">
+        <h3 className="q-eyebrow">Chat general</h3>
+        <div className="q-chat__log">
           {messages.map((m, i) => (
-            <div key={`${m.ts}-${i}`}>
-              <strong>{m.name}:</strong> {m.text}
+            <div key={`${m.ts}-${i}`} className="q-chat__msg">
+              <strong>{m.name}</strong>
+              {m.text}
             </div>
           ))}
-          {messages.length === 0 && <div style={{ opacity: 0.6 }}>sin mensajes…</div>}
+          {messages.length === 0 && (
+            <div className="q-muted q-small">Todavía no hay mensajes. Saluda al equipo 👋</div>
+          )}
           <div ref={chatEnd} />
         </div>
         <form
@@ -110,18 +102,22 @@ export function Sidebar({ status, roster, nearby, messages, name, onName, sendCh
             e.preventDefault();
             submitChat();
           }}
-          style={{ display: "flex", gap: 6 }}
+          style={{ display: "flex", gap: 8 }}
         >
           <input
+            id="chat-input"
+            className="q-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             maxLength={280}
-            placeholder="escribe y Enter"
-            style={{ flex: 1, minWidth: 0, background: "#1a1f2b", color: "#fff", border: "1px solid #333c52", borderRadius: 6, padding: "4px 8px" }}
+            placeholder="Escribe un mensaje"
+            aria-label="Mensaje para el chat general"
           />
-          <button type="submit" style={{ cursor: "pointer" }}>➤</button>
+          <button type="submit" className="q-btn q-btn--primary q-btn--icon" aria-label="Enviar">
+            ➤
+          </button>
         </form>
-      </div>
-    </aside>
+      </section>
+    </>
   );
 }

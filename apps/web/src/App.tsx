@@ -16,7 +16,13 @@ function displayName(email: string): string {
 }
 
 /** Pantalla de login: solo Google @quiiven.com. */
-function LoginGate({ onAuthorized }: { onAuthorized: (s: GoogleStatus) => void }) {
+function LoginGate({
+  onAuthorized,
+  onDemoLogin,
+}: {
+  onAuthorized: (s: GoogleStatus) => void;
+  onDemoLogin?: () => void;
+}) {
   const [status, setStatus] = React.useState<GoogleStatus | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [denied, setDenied] = React.useState(false);
@@ -29,10 +35,11 @@ function LoginGate({ onAuthorized }: { onAuthorized: (s: GoogleStatus) => void }
   }, [onAuthorized]);
 
   React.useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!onDemoLogin) void refresh();
+  }, [refresh, onDemoLogin]);
 
   const onLogin = async () => {
+    if (onDemoLogin) return onDemoLogin();
     setBusy(true);
     setDenied(false);
     const r = await startOAuth();
@@ -44,61 +51,46 @@ function LoginGate({ onAuthorized }: { onAuthorized: (s: GoogleStatus) => void }
     await refresh();
   };
 
+  const asset = import.meta.env.BASE_URL;
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "#0b0e16",
-        color: "#e8ecf4",
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <div
-        style={{
-          textAlign: "center",
-          background: "#141a28",
-          padding: 32,
-          borderRadius: 14,
-          border: "1px solid #2a3346",
-          maxWidth: 360,
-        }}
-      >
-        <h1 style={{ margin: "0 0 4px", fontSize: 22 }}>gatherQuiiven</h1>
-        <p style={{ color: "#9aa6bd", margin: "0 0 20px", fontSize: 13 }}>
-          Oficina virtual. Acceso solo para @quiiven.com.
-        </p>
-        <button
-          onClick={onLogin}
-          disabled={busy || status?.configured === false}
-          style={{
-            background: "#1a73e8",
-            color: "#fff",
-            border: 0,
-            padding: "12px 22px",
-            borderRadius: 8,
-            fontSize: 15,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          {busy ? "Abriendo…" : "Iniciar sesión con Google"}
-        </button>
-        {status?.configured === false && (
-          <p style={{ color: "#c33", fontSize: 12, marginTop: 14 }}>
-            OAuth no configurado en el server (.env GOOGLE_*).
+    <main className="q-login">
+      <section className="q-login__side">
+        <img className="logo" src={`${asset}brand/logo-blanco.png`} alt="Quiiven" />
+        <div className="q-login__copy">
+          <h1>
+            Nuestra oficina, <em>sin distancia.</em>
+          </h1>
+          <p>
+            Entra con tu cuenta @quiiven.com, muévete por el mapa y acércate a tu
+            equipo para hablar.
           </p>
-        )}
-        {denied && (
-          <p style={{ color: "#c33", fontSize: 12, marginTop: 14 }}>
-            Acceso denegado: se requiere una cuenta @quiiven.com.
-          </p>
-        )}
-      </div>
-    </div>
+          <button
+            className="q-btn q-btn--primary"
+            onClick={onLogin}
+            disabled={busy || status?.configured === false}
+          >
+            {busy ? "Abriendo Google…" : "Entrar con Google"}
+          </button>
+          {status?.configured === false && (
+            <p className="q-login__error">
+              El inicio de sesión no está configurado en el servidor (.env GOOGLE_*).
+            </p>
+          )}
+          {denied && (
+            <p className="q-login__error">
+              Esa cuenta no tiene acceso. Usa tu correo @quiiven.com.
+            </p>
+          )}
+        </div>
+        <span className="q-small q-muted">Quick · Quality — Oficina virtual Quiiven</span>
+      </section>
+      <figure className="q-login__art" aria-hidden="true">
+        <img className="glass-1" src={`${asset}brand/vidrio-organic-ball.webp`} alt="" />
+        <img className="glass-2" src={`${asset}brand/vidrio-torus-warped.webp`} alt="" />
+        <img className="glass-3" src={`${asset}brand/vidrio-round-cube.webp`} alt="" />
+        <figcaption>Cerca, aunque estemos lejos.</figcaption>
+      </figure>
+    </main>
   );
 }
 
@@ -128,8 +120,10 @@ function GameApp({ name }: { name: string }) {
   }, [roster]);
 
   return (
-    <div style={{ margin: 0 }}>
-      <Sidebar
+    <div style={{ position: "relative", height: "100%" }}>
+      <aside className="q-rail">
+        <GooglePanel net={net} onEvents={setCalendarMeets} />
+        <Sidebar
         status={status}
         roster={roster}
         nearby={nearby}
@@ -138,6 +132,7 @@ function GameApp({ name }: { name: string }) {
         onName={() => undefined}
         sendChat={sendChat}
       />
+      </aside>
       <VoicePanel
         supported={voice.supported}
         active={voice.active}
@@ -152,7 +147,6 @@ function GameApp({ name }: { name: string }) {
         onToggleAudio={voice.toggleAudio}
         onToggleVideo={voice.toggleVideo}
       />
-      <GooglePanel net={net} onEvents={setCalendarMeets} />
       <GameCanvas name={name} net={net} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
       {activeObject && (
         <SmartObjectModal
@@ -167,8 +161,21 @@ function GameApp({ name }: { name: string }) {
   );
 }
 
+/** Design-preview mode: skips Google login so the UI can be reviewed without a server. */
+const DEMO = import.meta.env.VITE_DEMO === "1";
+
 export function App() {
   const [auth, setAuth] = React.useState<GoogleStatus | null>(null);
+
+  const [demoIn, setDemoIn] = React.useState(false);
+
+  if (DEMO) {
+    return demoIn ? (
+      <GameApp name="Invitado Demo" />
+    ) : (
+      <LoginGate onAuthorized={() => undefined} onDemoLogin={() => setDemoIn(true)} />
+    );
+  }
 
   if (!auth || !auth.authorized) {
     return <LoginGate onAuthorized={setAuth} />;

@@ -1,0 +1,495 @@
+/*
+ * Quiiven brand layer for the virtual office UI.
+ * Source: "Manual de identidad de marca Quiiven 2026".
+ * Layout concept: the map is the stage; UI floats over it as carbon glass
+ * panels anchored to the corners, with Yellow Sea reserved for actions.
+ */
+
+@font-face {
+  font-family: "Cera Pro";
+  src: url("/fonts/CeraPro-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cera Pro";
+  src: url("/fonts/CeraPro-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cera Pro";
+  src: url("/fonts/CeraPro-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  /* Official palette */
+  --q-carbon: #2c2c33;
+  --q-yellow: #ffae00; /* Ventas · acción principal */
+  --q-cream: #f4c567;
+  --q-teal: #18d3b8; /* Marketing */
+  --q-teal-dark: #0ead9a;
+  --q-blue: #349ce2; /* Tecnología */
+  --q-orange: #ff7442; /* Personas y relaciones */
+  --q-flame: #dd582f;
+
+  /* Neutrals derived from carbon (slight blue-violet bias) */
+  --q-ink: #1f1f25;
+  --q-surface: rgba(44, 44, 51, 0.92);
+  --q-surface-2: #383841;
+  --q-line: rgba(255, 255, 255, 0.09);
+  --q-text: #f5f5f7;
+  --q-text-2: #b4b4bf;
+  --q-text-3: #82828e;
+
+  /* Type: Cera Pro is the brand face; Montserrat is the manual's digital fallback */
+  --q-font: "Cera Pro", "Montserrat", system-ui, sans-serif;
+
+  --q-radius: 16px;
+  --q-radius-sm: 10px;
+  --q-shadow: 0 12px 32px rgba(20, 20, 26, 0.28);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--q-carbon);
+  color: var(--q-text);
+  font-family: var(--q-font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+button,
+input {
+  font: inherit;
+}
+:focus-visible {
+  outline: 2px solid var(--q-yellow);
+  outline-offset: 2px;
+}
+
+/* ---------- Panels ---------- */
+.q-panel {
+  background: var(--q-surface);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--q-line);
+  border-radius: var(--q-radius);
+  box-shadow: var(--q-shadow);
+  padding: 14px 16px;
+  color: var(--q-text);
+}
+.q-eyebrow {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--q-text-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.q-muted {
+  color: var(--q-text-3);
+}
+.q-small {
+  font-size: 12px;
+}
+
+/* ---------- Buttons & inputs ---------- */
+.q-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--q-surface-2);
+  color: var(--q-text);
+  transition: background 0.15s, transform 0.15s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.q-btn:hover {
+  background: #45454f;
+}
+.q-btn:active {
+  transform: scale(0.97);
+}
+.q-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.q-btn--primary {
+  background: var(--q-yellow);
+  color: var(--q-carbon);
+  font-weight: 700;
+}
+.q-btn--primary:hover {
+  background: var(--q-cream);
+}
+.q-btn--ghost {
+  background: transparent;
+  color: var(--q-text-2);
+  padding: 6px 10px;
+}
+.q-btn--ghost:hover {
+  background: var(--q-surface-2);
+  color: var(--q-text);
+}
+.q-btn--sm {
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.q-btn--icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+.q-btn--danger {
+  background: var(--q-flame);
+  color: #fff;
+}
+.q-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--q-ink);
+  color: var(--q-text);
+  border: 1px solid var(--q-line);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+.q-input::placeholder {
+  color: var(--q-text-3);
+}
+.q-input:focus {
+  border-color: var(--q-yellow);
+  outline: none;
+}
+
+/* ---------- People ---------- */
+.q-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+.q-avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--q-carbon);
+  position: relative;
+}
+.q-avatar[data-near="true"]::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--q-teal);
+  border: 2px solid var(--q-carbon);
+}
+.q-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--q-surface-2);
+  color: var(--q-text-2);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.q-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--q-text-3);
+}
+.q-dot--online {
+  background: var(--q-teal);
+}
+.q-dot--connecting {
+  background: var(--q-yellow);
+}
+.q-dot--offline {
+  background: var(--q-orange);
+}
+
+/* ---------- Layout regions ---------- */
+.q-topbar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px 10px 14px;
+  pointer-events: none;
+}
+.q-topbar img {
+  height: 22px;
+  display: block;
+}
+.q-topbar .q-zone {
+  padding-left: 14px;
+  border-left: 1px solid var(--q-line);
+  font-size: 13px;
+  color: var(--q-text-2);
+}
+.q-topbar .q-zone strong {
+  color: var(--q-text);
+  font-weight: 500;
+}
+.q-rail {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: 284px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.q-rail > * {
+  pointer-events: auto;
+}
+.q-dock {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 10;
+  max-width: calc(100vw - 340px);
+  padding: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.q-debug {
+  position: absolute;
+  left: 16px;
+  top: 72px;
+  z-index: 10;
+  pointer-events: none;
+  font: 11px/1.5 ui-monospace, monospace;
+  background: rgba(31, 31, 37, 0.8);
+  color: var(--q-text-2);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+/* ---------- Chat ---------- */
+.q-chat {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+}
+.q-chat__log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.q-chat__msg strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--q-yellow);
+}
+
+/* ---------- Video tiles ---------- */
+.q-video {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--q-ink);
+}
+.q-video video {
+  display: block;
+  object-fit: cover;
+}
+.q-video span {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(31, 31, 37, 0.75);
+}
+
+/* ---------- Modal ---------- */
+.q-modal {
+  position: absolute;
+  top: 50%;
+  /* Centered in the map area, clear of the 284px right rail. */
+  left: calc((100% - 316px) / 2);
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  width: min(880px, calc(100vw - 364px));
+  height: min(600px, 84vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.q-modal__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 18px;
+  border-bottom: 1px solid var(--q-line);
+}
+.q-modal__head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.q-modal__body {
+  padding: 24px;
+  overflow: auto;
+}
+.q-link {
+  color: var(--q-yellow);
+}
+
+/* ---------- Login ---------- */
+.q-login {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) 1.1fr;
+  background: var(--q-carbon);
+}
+.q-login__side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 48px 56px;
+  gap: 32px;
+}
+.q-login__side img.logo {
+  width: 168px;
+}
+.q-login__copy {
+  max-width: 420px;
+}
+.q-login__copy h1 {
+  margin: 0 0 14px;
+  font-size: 48px;
+  line-height: 52px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.q-login__copy h1 em {
+  font-style: normal;
+  color: var(--q-yellow);
+}
+.q-login__copy p {
+  margin: 0 0 28px;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--q-text-2);
+}
+.q-login__copy .q-btn {
+  padding: 14px 24px;
+  font-size: 15px;
+}
+.q-login__error {
+  margin-top: 14px;
+  color: var(--q-orange);
+  font-size: 13px;
+}
+.q-login__art {
+  position: relative;
+  margin: 16px;
+  border-radius: 28px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 78% 18%, var(--q-cream) 0, transparent 42%),
+    radial-gradient(circle at 12% 88%, var(--q-orange) 0, transparent 48%),
+    var(--q-yellow);
+}
+.q-login__art img {
+  position: absolute;
+  pointer-events: none;
+  filter: drop-shadow(0 30px 40px rgba(44, 44, 51, 0.25));
+}
+.q-login__art .glass-1 {
+  width: 62%;
+  left: 18%;
+  top: 16%;
+}
+.q-login__art .glass-2 {
+  width: 26%;
+  right: 6%;
+  bottom: 8%;
+}
+.q-login__art .glass-3 {
+  width: 18%;
+  left: 7%;
+  top: 7%;
+}
+.q-login__art figcaption {
+  position: absolute;
+  left: 28px;
+  bottom: 24px;
+  color: var(--q-carbon);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 24px;
+  max-width: 260px;
+}
+@media (max-width: 820px) {
+  .q-login {
+    grid-template-columns: 1fr;
+  }
+  .q-login__art {
+    display: none;
+  }
+  .q-login__side {
+    padding: 32px 24px;
+  }
+  .q-login__copy h1 {
+    font-size: 36px;
+    line-height: 40px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

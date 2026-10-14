@@ -70,7 +70,7 @@ export function GooglePanel({ net, onEvents }: Props) {
       setBoth(await getEvents());
       setPublished(r.meetUri);
       net.sendSetMeet(r.meetUri);
-      setMsg(`Meet creado y publicado en TV Sala 1: ${r.meetUri}`);
+      setMsg("Reunión creada y publicada en la TV de Sala 1.");
     } catch (e) {
       setMsg(`Error: ${e instanceof Error ? e.message : e}`);
     } finally {
@@ -81,100 +81,107 @@ export function GooglePanel({ net, onEvents }: Props) {
   const onClearTv = () => {
     net.sendSetMeet("");
     setPublished("");
-    setMsg("Meet en vivo limpiado de la TV.");
+    setMsg("La TV quedó libre.");
   };
 
-  if (!status) return <div style={box}>Cargando…</div>;
+  if (!status) {
+    return (
+      <section className="q-panel">
+        <h3 className="q-eyebrow">Mi día</h3>
+        <span className="q-small q-muted">Cargando tu calendario…</span>
+      </section>
+    );
+  }
 
   return (
-    <div style={box}>
-      <h3 style={{ margin: "0 0 8px" }}>Google</h3>
+    <section className="q-panel" style={{ maxHeight: 320, overflowY: "auto" }}>
+      <h3 className="q-eyebrow">
+        <span>Mi día</span>
+        {status.linked && (
+          <button className="q-btn q-btn--ghost q-btn--sm" onClick={onUnlink}>
+            Desvincular
+          </button>
+        )}
+      </h3>
       {!status.configured && (
-        <p style={{ color: "#c33", fontSize: 12 }}>
-          OAuth no configurado en el server (.env GOOGLE_*).
+        <p className="q-small" style={{ color: "var(--q-orange)", margin: "0 0 8px" }}>
+          Google no está configurado en el servidor (.env GOOGLE_*).
         </p>
       )}
       {!status.linked ? (
-        <button onClick={onLink} disabled={busy || !status.configured}>
-          {busy ? "Abriendo…" : "Vincular Google"}
-        </button>
+        <>
+          <p className="q-small q-muted" style={{ margin: "0 0 10px" }}>
+            Conecta tu Google para ver tus reuniones y llevarlas a la TV de la sala.
+          </p>
+          <button className="q-btn q-btn--sm" onClick={onLink} disabled={busy || !status.configured}>
+            {busy ? "Abriendo…" : "Conectar Google Calendar"}
+          </button>
+        </>
       ) : (
         <>
-          <p style={{ fontSize: 12 }}>Vinculado: {status.email}</p>
-          <button onClick={onUnlink} style={{ fontSize: 12 }}>
-            Desvincular
-          </button>
-          <h4 style={{ margin: "12px 0 4px" }}>Mi día</h4>
-          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-            {events.length === 0 && <li>Sin eventos próximos</li>}
+          <p className="q-small q-muted" style={{ margin: "0 0 8px" }}>{status.email}</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {events.length === 0 && <span className="q-small q-muted">Sin reuniones próximas.</span>}
             {events.map((e) => (
-              <li key={e.id}>
-                {e.summary}{" "}
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="q-small" style={{ flex: 1, minWidth: 0 }}>{e.summary}</span>
                 {e.hangoutLink && (
                   <>
-                    <a href={e.hangoutLink} target="_blank" rel="noreferrer">
-                      Meet
-                    </a>{" "}
+                    <a className="q-btn q-btn--ghost q-btn--sm" href={e.hangoutLink} target="_blank" rel="noreferrer">
+                      Meet ↗
+                    </a>
                     <button
-                      style={{ fontSize: 10, padding: "0 4px" }}
+                      className="q-btn q-btn--sm"
                       onClick={() => {
                         net.sendSetMeet(e.hangoutLink);
-                        setMsg(`Publicado en TV Sala 1: ${e.hangoutLink}`);
+                        setMsg(`Publicado en la TV de Sala 1.`);
                       }}
                     >
-                      TV
+                      A la TV
                     </button>
                   </>
                 )}
-              </li>
+              </div>
             ))}
-          </ul>
-          <h4 style={{ margin: "12px 0 4px" }}>Crear Meet</h4>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          </div>
+          <h4 className="q-eyebrow" style={{ marginTop: 14 }}>Nueva reunión</h4>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <input
+              id="meet-title"
+              className="q-input"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Título"
-              style={{ flex: 1, minWidth: 90 }}
+              aria-label="Título de la reunión"
             />
             <input
+              id="meet-minutes"
+              className="q-input"
               type="number"
               value={minutes}
               min={5}
               max={480}
               onChange={(e) => setMinutes(Number(e.target.value))}
-              style={{ width: 56 }}
+              aria-label="Duración en minutos"
+              style={{ flex: "none", width: 64 }}
             />
-            <button onClick={onCreate} disabled={busy}>
-              {busy ? "…" : "Crear + TV"}
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button className="q-btn q-btn--primary q-btn--sm" onClick={onCreate} disabled={busy}>
+              {busy ? "Creando…" : "Crear y llevar a la TV"}
+            </button>
+            <button className="q-btn q-btn--ghost q-btn--sm" onClick={onClearTv}>
+              Limpiar TV
             </button>
           </div>
-          <button onClick={onClearTv} style={{ fontSize: 12, marginTop: 4 }}>
-            Limpiar TV
-          </button>
         </>
       )}
-      {msg && (
-        <p style={{ fontSize: 11, color: "#264", marginTop: 6 }}>{msg}</p>
-      )}
+      {msg && <p className="q-small" style={{ color: "var(--q-teal)", margin: "8px 0 0" }}>{msg}</p>}
       {published && (
-        <p style={{ fontSize: 11, color: "#24a", marginTop: 4 }}>
+        <p className="q-small q-muted" style={{ margin: "4px 0 0", wordBreak: "break-all" }}>
           TV Sala 1 → {published}
         </p>
       )}
-    </div>
+    </section>
   );
 }
-
-const box: React.CSSProperties = {
-  position: "fixed",
-  top: 12,
-  right: 12,
-  width: 240,
-  background: "rgba(20,24,40,0.92)",
-  color: "#eee",
-  borderRadius: 10,
-  padding: 12,
-  zIndex: 30,
-  fontFamily: "system-ui, sans-serif",
-};
