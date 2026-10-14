@@ -8,6 +8,7 @@ export interface MoveOut {
   y: number;
   dir: string;
   anim: string;
+  zone: string;
 }
 
 export interface RosterEntry {

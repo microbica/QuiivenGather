@@ -10,6 +10,7 @@ import {
   clampMove,
   sanitizeChat,
   sanitizeName,
+  sanitizeZone,
   validAnim,
   validDir,
 } from "../net/validate.js";
@@ -19,6 +20,7 @@ interface MoveMsg {
   y?: unknown;
   dir?: unknown;
   anim?: unknown;
+  zone?: unknown;
 }
 
 interface ChatMsg {
@@ -71,6 +73,7 @@ export class GameRoom extends Room<GameState> {
     p.y = next.y;
     p.dir = validDir(msg.dir, p.dir);
     p.anim = validAnim(msg.anim, p.anim);
+    p.zoneId = sanitizeZone(msg.zone);
   }
 
   private handleChat(client: Client, msg: ChatMsg) {

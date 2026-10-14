@@ -21,11 +21,11 @@ Decisiones base: React+TS+PixiJS, Colyseus, Lightsail, monorepo pnpm, auth real.
 - [x] Cliente: `useColyseusRoom`, interpolación exponencial, lista jugadores, chat
 - DoD: 2 clientes se ven moverse (smoke PASS), sin rubber-banding severo.
 
-## Fase 2.5 — Proximidad mock + zonas (2-3 días)
-- [ ] `useProximity(players, radiusTiles=5)`: distancia euclidiana, badge "en rango", lista "cerca de mí"
-- [ ] Zonas `private`: si comparten `zoneId` → conectados; si no, suprime radial aunque estén cerca
-- [ ] Culling red: no suscribir/renderizar avatares fuera de viewport + radio*2
-- DoD: demo 3 avatares: 2 cerca conectados, 1 lejos no; entrar a zona privada aísla. Sin WebRTC.
+## Fase 2.5 — Proximidad mock + zonas (2-3 días) ✅ 2026-10-14
+- [x] `useProximity(players, radiusTiles=5)`: distancia euclidiana, badge "en rango", lista "cerca de mí"
+- [x] Zonas `private`: si comparten `zoneId` → conectados; si no, suprime radial aunque estén cerca
+- [x] Culling: avatares remotos fuera de viewport + radio se ocultan; `Player.zoneId` reportada por cliente y validada en server
+- DoD: anillo verde = conectado (mock de futuro audio), Sala 1 aísla. Sin WebRTC.
 
 ## Fase 3 — Voz/video real (a planificar tras 2.5)
 Requiere decidir: LiveKit Cloud vs self-hosted en Lightsail, dominio+TURN, proveedor auth cerrado.

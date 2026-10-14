@@ -64,6 +64,11 @@ export function sanitizeChat(text: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
+/** Trim + cap zone ids reportadas por el cliente (max 32 chars). */
+export function sanitizeZone(zone: unknown): string {
+  if (typeof zone !== "string") return "";
+  return zone.trim().slice(0, 32);
+}
 /** Trim + cap player names (max 24 chars). */
 export function sanitizeName(name: unknown, fallback: string): string {
   if (typeof name !== "string") return fallback;

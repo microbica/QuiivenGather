@@ -8,6 +8,7 @@ import type {
 interface Props {
   status: NetStatus;
   roster: RosterEntry[];
+  nearby: string[];
   messages: ChatEntry[];
   name: string;
   onName: (n: string) => void;
@@ -23,7 +24,7 @@ const panel: React.CSSProperties = {
   padding: "8px 10px",
 };
 
-export function Sidebar({ status, roster, messages, name, onName, sendChat }: Props) {
+export function Sidebar({ status, roster, nearby, messages, name, onName, sendChat }: Props) {
   const [draft, setDraft] = React.useState("");
   const [nameDraft, setNameDraft] = React.useState(name);
   const chatEnd = React.useRef<HTMLDivElement>(null);
@@ -73,11 +74,23 @@ export function Sidebar({ status, roster, messages, name, onName, sendChat }: Pr
         <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
           {roster.map((r) => (
             <li key={r.id}>
+              {nearby.includes(r.id) ? "🟢 " : "⚪ "}
               {r.name}
               {r.self ? " (tú)" : ""}
             </li>
           ))}
           {roster.length === 0 && <li>—</li>}
+        </ul>
+      </div>
+
+      <div style={{ ...panel, maxHeight: 110, overflowY: "auto" }}>
+        <strong>Cerca de mí (mock proximidad)</strong>
+        <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+          {nearby.map((id) => {
+            const r = roster.find((x) => x.id === id);
+            return <li key={id}>{r ? r.name : id.slice(0, 4)}</li>;
+          })}
+          {nearby.length === 0 && <li style={{ opacity: 0.6 }}>nadie en rango…</li>}
         </ul>
       </div>
 

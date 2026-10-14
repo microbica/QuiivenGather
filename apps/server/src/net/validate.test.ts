@@ -3,6 +3,7 @@ import {
   clampMove,
   sanitizeChat,
   sanitizeName,
+  sanitizeZone,
   validAnim,
   validDir,
 } from "./validate";
@@ -44,6 +45,13 @@ describe("chat y nombres", () => {
     expect(sanitizeName("  Ana  ", "fb")).toBe("Ana");
     expect(sanitizeName("", "fb")).toBe("fb");
     expect(sanitizeName(undefined, "fb")).toBe("fb");
+  });
+
+  it("sanitizeZone recorta y tolera tipos", () => {
+    expect(sanitizeZone(" sala-1 ")).toBe("sala-1");
+    expect(sanitizeZone(undefined)).toBe("");
+    expect(sanitizeZone(42)).toBe("");
+    expect(sanitizeZone("z".repeat(100)).length).toBe(32);
   });
 
   it("dir/anim solo aceptan valores conocidos", () => {

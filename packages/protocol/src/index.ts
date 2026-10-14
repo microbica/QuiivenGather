@@ -13,13 +13,14 @@ export const CHAT_MAX_LEN = 280;
 export const CHAT_HISTORY = 50;
 export const SPAWN = { x: 20 * TILE + TILE / 2, y: 24 * TILE + TILE / 2 };
 
-/** Jugador. Fase 2.5 añadirá zoneId. */
+/** Jugador. zoneId = "" fuera de zonas; el cliente la reporta (Fase 2.5). */
 export class Player extends Schema {
   @type("number") x = 0;
   @type("number") y = 0;
   @type("string") name = "guest";
   @type("string") dir = "down";
   @type("string") anim = "idle";
+  @type("string") zoneId = "";
 }
 
 export class ChatMessage extends Schema {

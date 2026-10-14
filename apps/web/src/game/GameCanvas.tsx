@@ -7,6 +7,7 @@ import {
   zoneAt,
   type GameMap,
 } from "./mapLoader";
+import { distancePx, isConnected } from "./proximity";
 import type { NetHandle } from "./useColyseus";
 
 const SPEED = CLIENT_SPEED;
@@ -33,14 +34,17 @@ interface Hud {
   dir: string;
   anim: string;
   zone: string;
+  near: number;
   chunks: string;
 }
 
 interface Remote {
   c: Container;
   label: Text;
+  ring: Graphics;
   cx: number;
   cy: number;
+  connected: boolean;
 }
 
 function drawTile(g: Graphics, gid: number, px: number, py: number, t: number) {
@@ -83,25 +87,35 @@ function buildLayer(
   return chunks;
 }
 
-function makeAvatar(color: number, name: string): { c: Container; label: Text; nub: Graphics } {
+function makeAvatar(color: number, name: string): { c: Container; label: Text; nub: Graphics; ring: Graphics } {
   const c = new Container();
   const body = new Graphics();
   body.roundRect(0, 0, BODY_W, BODY_H, 6).fill({ color });
   body.circle(BODY_W / 2, 8, 5).fill({ color: 0xd7e6ff });
   const nub = new Graphics();
+  const ring = new Graphics();
   const label = new Text({ text: name, style: { fontSize: 12, fill: 0xffffff } });
   label.anchor.set(0.5, 1);
   label.position.set(BODY_W / 2, -4);
-  c.addChild(body, nub, label);
-  return { c, label, nub };
+  c.addChild(body, nub, ring, label);
+  return { c, label, nub, ring };
 }
 
-export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
+function paintRing(ring: Graphics, connected: boolean) {
+  ring.clear();
+  ring
+    .roundRect(-4, -4, BODY_W + 8, BODY_H + 8, 8)
+    .stroke({ color: connected ? 0x51d88a : 0x5a6376, width: 2 });
+}
+
+export function GameCanvas({ name, net, onNearby }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   const nameRef = React.useRef(name);
   nameRef.current = name;
+  const onNearbyRef = React.useRef(onNearby);
+  onNearbyRef.current = onNearby;
   const [hud, setHud] = React.useState<Hud>({
-    fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", chunks: "—",
+    fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", near: 0, chunks: "—",
   });
   const debug = React.useMemo(
     () => new URLSearchParams(window.location.search).has("debug"),
@@ -187,11 +201,14 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
       };
       const cam = { x: 0, y: 0 };
       const remotes = new Map<string, Remote>();
+      const radiusPx = Number(import.meta.env.VITE_PROXIMITY_RADIUS_TILES ?? 5) * map.tile;
       let dir = "down";
       let anim: string = "idle";
       let lastHud = 0;
       let lastSend = 0;
       let lastSent = "";
+      let lastNearby = "";
+      let lastNearCount = 0;
 
       const drawNub = (nub: Graphics) => {
         nub.clear();
@@ -206,6 +223,8 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
 
       app.ticker.add((ticker) => {
         const dt = Math.min(ticker.deltaMS / 1000, 0.05);
+        const viewW = app!.screen.width;
+        const viewH = app!.screen.height;
         let vx = 0;
         let vy = 0;
         for (const k of keys) {
@@ -234,24 +253,32 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
         if (local.label.text !== nameRef.current) local.label.text = nameRef.current;
         local.c.position.set(Math.round(pos.x), Math.round(pos.y));
 
-        // Publish at ~15Hz when something changed (Fase 2: sin reconciliación).
+        // Publish at ~15Hz when something changed (pos/dir/anim/zone).
         const now = performance.now();
-        const snap = `${Math.round(pos.x)},${Math.round(pos.y)},${dir},${anim}`;
+        const cx0 = pos.x + BODY_W / 2;
+        const cy0 = pos.y + BODY_H / 2;
+        const myZone = zoneAt(cx0, cy0, map.zones);
+        const myZoneId = myZone?.id ?? "";
+        const snap = `${Math.round(pos.x)},${Math.round(pos.y)},${dir},${anim},${myZoneId}`;
         if (now - lastSend > SEND_MS && snap !== lastSent) {
           lastSend = now;
           lastSent = snap;
-          net.sendMove({ x: Math.round(pos.x), y: Math.round(pos.y), dir, anim });
+          net.sendMove({ x: Math.round(pos.x), y: Math.round(pos.y), dir, anim, zone: myZoneId });
         }
 
         // Remote avatars: create/update from room state + interpolate.
+        // Proximity mock: green ring = connected (would get audio in Fase 3).
         const room = net.getRoom();
+        const connectedIds: string[] = [];
         if (room) {
+          const selfZone = { zoneId: myZone?.id ?? "", zoneKind: myZone?.kind ?? "" };
           room.state.players.forEach((p, id) => {
             if (id === net.sessionId) return;
             let r = remotes.get(id);
             if (!r) {
               const built = makeAvatar(0xf2a54a, p.name);
-              r = { c: built.c, label: built.label, cx: p.x, cy: p.y };
+              r = { c: built.c, label: built.label, ring: built.ring, cx: p.x, cy: p.y, connected: false };
+              paintRing(r.ring, false);
               avatarC.addChild(r.c);
               remotes.set(id, r);
             }
@@ -260,6 +287,25 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
             r.cx += (p.x - r.cx) * k;
             r.cy += (p.y - r.cy) * k;
             r.c.position.set(Math.round(r.cx), Math.round(r.cy));
+
+            const pz = map.zones.find((z) => z.id === p.zoneId);
+            const connected = isConnected(
+              selfZone,
+              { zoneId: p.zoneId, zoneKind: pz?.kind ?? "" },
+              distancePx({ x: cx0, y: cy0 }, { x: r.cx + BODY_W / 2, y: r.cy + BODY_H / 2 }),
+              radiusPx,
+            );
+            if (connected !== r.connected) {
+              r.connected = connected;
+              paintRing(r.ring, connected);
+            }
+            if (connected) connectedIds.push(id);
+            // Avatar culling: hide remotes far outside viewport + radius.
+            r.c.visible =
+              r.cx + BODY_W > cam.x - radiusPx &&
+              r.cx < cam.x + viewW + radiusPx &&
+              r.cy + BODY_H > cam.y - radiusPx &&
+              r.cy < cam.y + viewH + radiusPx;
           });
           for (const [id, r] of remotes) {
             if (!room.state.players.get(id)) {
@@ -271,8 +317,6 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
         }
 
         // Follow camera with smoothing + clamp.
-        const viewW = app!.screen.width;
-        const viewH = app!.screen.height;
         const cx = pos.x + BODY_W / 2;
         const cy = pos.y + BODY_H / 2;
         const tx = Math.min(Math.max(cx - viewW / 2, 0), Math.max(0, map.widthPx - viewW));
@@ -295,6 +339,12 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
         if (now - lastHud > 250) {
           lastHud = now;
           const z = zoneAt(cx, cy, map.zones);
+          lastNearCount = connectedIds.length;
+          const key = connectedIds.slice().sort().join(",");
+          if (key !== lastNearby) {
+            lastNearby = key;
+            onNearbyRef.current(connectedIds.slice().sort());
+          }
           setHud({
             fps: Math.round(app!.ticker.FPS),
             x: Math.round(pos.x),
@@ -302,6 +352,7 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
             dir,
             anim,
             zone: z ? `${z.label} (${z.kind})` : "—",
+            near: lastNearCount,
             chunks: `${visible}/${allChunks.length}`,
           });
         }
@@ -328,9 +379,9 @@ export function GameCanvas({ name, net }: { name: string; net: NetHandle }) {
           fontFamily: "system-ui", padding: "8px 12px", borderRadius: 8, lineHeight: 1.5,
         }}
       >
-        <div><strong>gatherQuiiven</strong> · Fase 2 · WASD / flechas · <code>?debug</code> colisiones</div>
+        <div><strong>gatherQuiiven</strong> · Fase 2.5 · WASD / flechas · <code>?debug</code> colisiones</div>
         <div>
-          {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · chunks: {hud.chunks}
+          {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · cerca: {hud.near} · chunks: {hud.chunks}
         </div>
       </div>
     </div>

@@ -55,6 +55,15 @@ async function main(): Promise<void> {
   );
   console.log("ok: move broadcast");
 
+  // Reporte de zona: el server guarda y difunde el zoneId del cliente.
+  roomA.send("move", { x: tx, y: ty, dir: "down", anim: "idle", zone: "sala-1" });
+  await waitFor(
+    () => roomB.state.players.get(idA)?.zoneId === "sala-1",
+    3000,
+    "zone broadcast",
+  );
+  console.log("ok: zone broadcast");
+
   // Anti-teleport: salto imposible se recorta, no se aplica tal cual.
   roomA.send("move", { x: 50, y: 50, dir: "up", anim: "walk" });
   await sleep(400);

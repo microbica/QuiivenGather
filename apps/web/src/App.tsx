@@ -11,6 +11,7 @@ function initialName(): string {
 
 export function App() {
   const [name, setName] = React.useState(initialName);
+  const [nearby, setNearby] = React.useState<string[]>([]);
   const { status, roster, messages, sendChat, net } = useColyseusRoom(name);
 
   const onName = React.useCallback((n: string) => {
@@ -18,17 +19,22 @@ export function App() {
     localStorage.setItem("gq-name", n);
   }, []);
 
+  const onNearby = React.useCallback((ids: string[]) => {
+    setNearby(ids);
+  }, []);
+
   return (
     <div style={{ margin: 0 }}>
       <Sidebar
         status={status}
         roster={roster}
+        nearby={nearby}
         messages={messages}
         name={name}
         onName={onName}
         sendChat={sendChat}
       />
-      <GameCanvas name={name} net={net} />
+      <GameCanvas name={name} net={net} onNearby={onNearby} />
     </div>
   );
 }
