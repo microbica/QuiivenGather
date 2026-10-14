@@ -43,9 +43,9 @@ describe("mapLoader", () => {
 
   it("demo.tmj tiene las 5 capas y spawn dentro del mapa", () => {
     const map = parseMap(demoMap);
-    expect(map.widthTiles).toBe(40);
-    expect(map.heightTiles).toBe(30);
-    expect(map.ground).toHaveLength(1200);
+    expect(map.widthTiles).toBe(100);
+    expect(map.heightTiles).toBe(60);
+    expect(map.ground).toHaveLength(6000);
     expect(map.collisions.length).toBeGreaterThan(0);
     expect(map.zones.some((z) => z.kind === "private")).toBe(true);
     expect(map.spawn.x).toBeGreaterThan(0);
@@ -57,7 +57,7 @@ describe("mapLoader", () => {
         map.collisions,
       ),
     ).toBe(false);
-    // Punto dentro de Sala 1.
-    expect(zoneAt(4 * 32, 4 * 32, map.zones)?.id).toBe("sala-1");
+    // Patio es público.
+    expect(zoneAt(50 * 32, 5 * 32, map.zones)?.id).toBe("patio");
   });
 });

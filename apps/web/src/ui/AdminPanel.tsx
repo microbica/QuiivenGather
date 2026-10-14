@@ -57,9 +57,13 @@ export function AdminPanel({ net, objects }: Props) {
 
   const buildHere = () => {
     // Centro del viewport: el cliente conoce su posición local;
-    // para simplificar colocamos en (640, 480) que es el centro del mapa 40x30 @32.
-    const x = 640 - buildSpec.w / 2;
-    const y = 480 - buildSpec.h / 2;
+    // para simplificar colocamos en el centro del mapa (100x60 tiles).
+    // Snap a grid de 32px para que caiga en un cuadrito exacto.
+    const TILE = 32;
+    const cx = Math.round(1600 / TILE) * TILE; // 50 * TILE
+    const cy = Math.round(960 / TILE) * TILE;  // 30 * TILE
+    const x = cx - Math.round(buildSpec.w / TILE) * TILE / 2;
+    const y = cy - Math.round(buildSpec.h / TILE) * TILE / 2;
     net.sendObjAdd(
       buildSpec.label,
       buildKind,

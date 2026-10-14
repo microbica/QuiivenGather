@@ -61,6 +61,7 @@ describe("db objects", () => {
       h: 40,
       radius: 96,
       url: "",
+      rotation: 0,
     });
     expect(listObjects().map((o) => o.id)).toContain("obj-test");
     deleteObject("obj-test");

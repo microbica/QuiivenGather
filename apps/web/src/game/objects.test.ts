@@ -17,6 +17,7 @@ const tv = {
   h: 40,
   radius: 96,
   url: "",
+  rotation: 0,
 } as const;
 
 describe("objects", () => {

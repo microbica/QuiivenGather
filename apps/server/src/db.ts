@@ -27,6 +27,7 @@ export interface DbObject {
   h: number;
   radius: number;
   url: string;
+  rotation: number;
 }
 
 export const ADMIN_EMAIL =
@@ -99,20 +100,7 @@ function seedAdmin(): void {
   stmt.run(ADMIN_EMAIL.toLowerCase(), Date.now());
 }
 
-function seedObjects(): void {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM objects").get() as {
-    n: number;
-  };
-  if (row.n > 0) return;
-  const file = path.resolve(
-    process.cwd(),
-    "..",
-    "..",
-    "apps",
-    "web",
-    "public",
-    "objects.json",
-  );
+function seedObjectsFrom(file: string, stmt: ReturnType<typeof db.prepare>): void {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
@@ -120,10 +108,6 @@ function seedObjects(): void {
     return;
   }
   if (!Array.isArray(raw)) return;
-  const stmt = db.prepare(
-    `INSERT INTO objects (id, label, kind, material, x, y, w, h, radius, url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
   for (const o of raw as unknown[]) {
     const obj = o as Record<string, unknown>;
     const id = String(obj.id ?? "");
@@ -132,15 +116,38 @@ function seedObjects(): void {
       id,
       String(obj.label ?? id),
       String(obj.kind ?? "board"),
-      "wood",
+      String(obj.material ?? "wood"),
       Number(obj.x ?? 0),
       Number(obj.y ?? 0),
       Number(obj.w ?? 64),
       Number(obj.h ?? 40),
       Number(obj.radius ?? 96),
       String(obj.url ?? ""),
+      Number(obj.rotation ?? 0),
     );
   }
+}
+
+function seedObjects(): void {
+  const row = db.prepare("SELECT COUNT(*) AS n FROM objects").get() as {
+    n: number;
+  };
+  if (row.n > 0) return;
+  const publicDir = path.resolve(
+    process.cwd(),
+    "..",
+    "..",
+    "apps",
+    "web",
+    "public",
+  );
+  const stmt = db.prepare(
+    `INSERT INTO objects (id, label, kind, material, x, y, w, h, radius, url, rotation)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  // Orden: primero objetos "lógicos" (TV, pizarra), luego muros del mapa.
+  seedObjectsFrom(path.join(publicDir, "objects.json"), stmt);
+  seedObjectsFrom(path.join(publicDir, "walls.json"), stmt);
 }
 
 export function getUser(email: string): DbUser | null {
@@ -177,14 +184,14 @@ export function listObjects(): DbObject[] {
 export function upsertObject(o: DbObject): void {
   init()
     .prepare(
-      `INSERT INTO objects (id, label, kind, material, x, y, w, h, radius, url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO objects (id, label, kind, material, x, y, w, h, radius, url, rotation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          label=excluded.label, kind=excluded.kind, material=excluded.material,
          x=excluded.x, y=excluded.y, w=excluded.w, h=excluded.h,
-         radius=excluded.radius, url=excluded.url`,
+         radius=excluded.radius, url=excluded.url, rotation=excluded.rotation`,
     )
-    .run(o.id, o.label, o.kind, o.material, o.x, o.y, o.w, o.h, o.radius, o.url);
+    .run(o.id, o.label, o.kind, o.material, o.x, o.y, o.w, o.h, o.radius, o.url, o.rotation);
 }
 
 export function deleteObject(id: string): void {

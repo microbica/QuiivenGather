@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAP_H, MAP_W, PLAYER_H, PLAYER_W } from "@quiiven/protocol";
 import {
   clampMove,
   sanitizeChat,
@@ -29,8 +30,8 @@ describe("clampMove", () => {
       y: 0,
     });
     const far = clampMove({ x: 1200, y: 900 }, { x: 9999, y: 9999 }, 1000);
-    expect(far.x).toBeLessThanOrEqual(1280 - 20);
-    expect(far.y).toBeLessThanOrEqual(960 - 28);
+    expect(far.x).toBeLessThanOrEqual(MAP_W - PLAYER_W);
+    expect(far.y).toBeLessThanOrEqual(MAP_H - PLAYER_H);
   });
 });
 

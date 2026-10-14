@@ -75,6 +75,7 @@ export const OBJECT_KINDS = [
   "door",
 ] as const;
 export const OBJECT_MATERIALS = ["wood", "metal", "glass", "stone"] as const;
+export const OBJECT_ROTATIONS = [0, 90, 180, 270] as const;
 
 export function validKind(k: unknown): string {
   if (typeof k !== "string") return "generic";
@@ -84,6 +85,14 @@ export function validKind(k: unknown): string {
 export function validMaterial(m: unknown): string {
   if (typeof m !== "string") return "wood";
   return (OBJECT_MATERIALS as readonly string[]).includes(m) ? m : "wood";
+}
+
+/** Snap rotación a múltiplo de 30° y normaliza a [0, 360). */
+export function validRotation(r: unknown): number {
+  const n = Number(r);
+  if (!Number.isFinite(n)) return 0;
+  const snapped = Math.round(n / 30) * 30;
+  return ((snapped % 360) + 360) % 360;
 }
 
 export interface RelaySignal {

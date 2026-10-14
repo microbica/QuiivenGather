@@ -17,6 +17,7 @@ import {
   validDir,
   validKind,
   validMaterial,
+  validRotation,
   validSignal,
 } from "../net/validate.js";
 import {
@@ -74,10 +75,16 @@ interface ObjAddMsg {
   h?: unknown;
   radius?: unknown;
   url?: unknown;
+  rotation?: unknown;
 }
 
 interface ObjRemoveMsg {
   id?: unknown;
+}
+
+interface ObjRotateMsg {
+  id?: unknown;
+  rotation?: unknown;
 }
 
 /** Fase 2: servidor autoritativo. Valida movimiento (anti-teleport) y chat. */
@@ -117,6 +124,9 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("obj-remove", (client, msg: ObjRemoveMsg) =>
       this.handleObjRemove(client, msg),
     );
+    this.onMessage("obj-rotate", (client, msg: ObjRotateMsg) =>
+      this.handleObjRotate(client, msg),
+    );
   }
 
   private loadObjects(): void {
@@ -133,6 +143,7 @@ export class GameRoom extends Room<GameState> {
       g.h = o.h;
       g.radius = o.radius;
       g.url = o.url;
+      g.rotation = validRotation(o.rotation);
       this.state.objects.set(o.id, g);
     }
   }
@@ -254,6 +265,7 @@ export class GameRoom extends Room<GameState> {
       h: g.h,
       radius: g.radius,
       url: g.url,
+      rotation: g.rotation,
     });
   }
 
@@ -269,6 +281,7 @@ export class GameRoom extends Room<GameState> {
     const h = clampDim(msg.h, 16, 512);
     const radius = clampDim(msg.radius, 0, 512);
     const url = typeof msg.url === "string" ? msg.url.trim().slice(0, 300) : "";
+    const rotation = validRotation(msg.rotation);
     const g = new GameObject();
     g.id = `obj-${randomBytes(6).toString("hex")}`;
     g.label = label;
@@ -280,6 +293,7 @@ export class GameRoom extends Room<GameState> {
     g.h = h;
     g.radius = radius;
     g.url = url;
+    g.rotation = rotation;
     this.state.objects.set(g.id, g);
     upsertObject({
       id: g.id,
@@ -292,6 +306,28 @@ export class GameRoom extends Room<GameState> {
       h: g.h,
       radius: g.radius,
       url: g.url,
+      rotation: g.rotation,
+    });
+  }
+
+  private handleObjRotate(client: Client, msg: ObjRotateMsg) {
+    if (!this.isAdmin(client)) return;
+    const id = typeof msg.id === "string" ? msg.id : "";
+    const g = this.state.objects.get(id);
+    if (!g) return;
+    g.rotation = validRotation(msg.rotation);
+    upsertObject({
+      id: g.id,
+      label: g.label,
+      kind: g.kind,
+      material: g.material,
+      x: g.x,
+      y: g.y,
+      w: g.w,
+      h: g.h,
+      radius: g.radius,
+      url: g.url,
+      rotation: g.rotation,
     });
   }
 

@@ -40,8 +40,10 @@ export interface NetHandle {
     radius?: number,
     url?: string,
     material?: string,
+    rotation?: number,
   ): void;
   sendObjRemove(id: string): void;
+  sendObjRotate(id: string, rotation: number): void;
 }
 
 export type NetStatus = "connecting" | "online" | "offline";
@@ -66,9 +68,10 @@ export function useColyseusRoom(name: string) {
     sendMove: (m) => roomRef.current?.send("move", m),
     sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
     sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
-    sendObjAdd: (label, kind, x, y, w, h, radius, url, material) =>
-      roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url, material }),
+    sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
+      roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url, material, rotation }),
     sendObjRemove: (id) => roomRef.current?.send("obj-remove", { id }),
+    sendObjRotate: (id, rotation) => roomRef.current?.send("obj-rotate", { id, rotation }),
   }));
 
   const syncObjects = React.useCallback((room: Room<GameState> | null) => {
@@ -110,6 +113,7 @@ export function useColyseusRoom(name: string) {
         h: o.h,
         radius: o.radius,
         url: o.url,
+        rotation: typeof o.rotation === "number" ? o.rotation : 0,
       });
     });
     list.sort((a, b) => a.id.localeCompare(b.id));
@@ -147,6 +151,8 @@ export function useColyseusRoom(name: string) {
       $(room.state).listen("meetUrl", (value: string) => setMeetUrl(value));
       $(room.state).objects.onAdd(() => syncObjects(room));
       $(room.state).objects.onRemove(() => syncObjects(room));
+      // Propiedades de un objeto existente cambian (p.ej. rotation en obj-rotate).
+      $(room.state).objects.onChange(() => syncObjects(room));
       syncObjects(room);
       syncRoster();
       setStatus("online");

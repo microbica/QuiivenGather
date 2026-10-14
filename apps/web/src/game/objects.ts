@@ -15,6 +15,7 @@ export interface SmartObject {
   h: number;
   radius: number;
   url: string;
+  rotation: number;
 }
 
 const KINDS: SmartKind[] = ["meet", "board", "generic", "wall", "window", "door"];
@@ -57,6 +58,7 @@ export function resolveObjects(raw: unknown, meetUrl: string): SmartObject[] {
       h: Math.max(8, num(r.h, 32)),
       radius: Math.max(16, num(r.radius, 96)),
       url: kind === "meet" && meetUrl ? meetUrl : str(r.url),
+      rotation: 0,
     });
   }
   return out;
