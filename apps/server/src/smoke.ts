@@ -82,6 +82,21 @@ async function main(): Promise<void> {
   await waitFor(() => got === "hola fase2", 3000, "chat global");
   console.log("ok: chat global");
 
+  // Relay rtc-signal: B recibe la oferta de A; destino inexistente se ignora.
+  let signal: { from?: string; kind?: string } | null = null;
+  roomB.onMessage("rtc-signal", (msg: { from?: string; kind?: string }) => {
+    signal = msg;
+  });
+  roomA.send("rtc-signal", { to: roomB.sessionId, kind: "offer", sdp: "fake-sdp" });
+  await waitFor(
+    () => signal?.kind === "offer" && signal?.from === idA,
+    3000,
+    "rtc relay",
+  );
+  console.log("ok: rtc relay");
+  roomA.send("rtc-signal", { to: "no-existe", kind: "offer", sdp: "x" });
+  await sleep(200); // no debe crashear ni reenviar
+
   await roomA.leave();
   await roomB.leave();
   console.log("SMOKE PASS");

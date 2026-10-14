@@ -64,6 +64,32 @@ export function sanitizeChat(text: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
+export const SIGNAL_KINDS = ["offer", "answer", "ice"] as const;
+
+export interface RelaySignal {
+  to: string;
+  kind: string;
+  sdp?: unknown;
+  candidate?: unknown;
+}
+
+/**
+ * Valida un mensaje de señalización: destino conectado y kind conocido.
+ * El contenido (sdp/candidate) se reenvía opaco, con tope de tamaño.
+ */
+export function validSignal(
+  msg: { to?: unknown; kind?: unknown; sdp?: unknown; candidate?: unknown },
+  sessions: Set<string> | Map<string, unknown>,
+): RelaySignal | null {
+  if (typeof msg.to !== "string" || !sessions.has(msg.to)) return null;
+  if (typeof msg.kind !== "string" || !(SIGNAL_KINDS as readonly string[]).includes(msg.kind)) {
+    return null;
+  }
+  const body = JSON.stringify(msg.sdp ?? msg.candidate ?? "");
+  if (body.length > 8192) return null;
+  return { to: msg.to, kind: msg.kind, sdp: msg.sdp, candidate: msg.candidate };
+}
+
 /** Trim + cap zone ids reportadas por el cliente (max 32 chars). */
 export function sanitizeZone(zone: unknown): string {
   if (typeof zone !== "string") return "";

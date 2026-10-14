@@ -8,6 +8,7 @@ import {
   type GameMap,
 } from "./mapLoader";
 import { distancePx, isConnected } from "./proximity";
+import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
 
 const SPEED = CLIENT_SPEED;
@@ -108,12 +109,14 @@ function paintRing(ring: Graphics, connected: boolean) {
     .stroke({ color: connected ? 0x51d88a : 0x5a6376, width: 2 });
 }
 
-export function GameCanvas({ name, net, onNearby }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void }) {
+export function GameCanvas({ name, net, onNearby, audio }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   const nameRef = React.useRef(name);
   nameRef.current = name;
   const onNearbyRef = React.useRef(onNearby);
   onNearbyRef.current = onNearby;
+  const audioRef = React.useRef(audio);
+  audioRef.current = audio;
   const [hud, setHud] = React.useState<Hud>({
     fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", near: 0, chunks: "—",
   });
@@ -300,6 +303,12 @@ export function GameCanvas({ name, net, onNearby }: { name: string; net: NetHand
               paintRing(r.ring, connected);
             }
             if (connected) connectedIds.push(id);
+            // Audio espacial: posición relativa al oyente (Fase 3).
+            audioRef.current?.setPosition(
+              id,
+              r.cx + BODY_W / 2 - cx0,
+              r.cy + BODY_H / 2 - cy0,
+            );
             // Avatar culling: hide remotes far outside viewport + radius.
             r.c.visible =
               r.cx + BODY_W > cam.x - radiusPx &&
@@ -312,6 +321,7 @@ export function GameCanvas({ name, net, onNearby }: { name: string; net: NetHand
               avatarC.removeChild(r.c);
               r.c.destroy(true);
               remotes.delete(id);
+              audioRef.current?.detach(id);
             }
           }
         }
@@ -338,6 +348,7 @@ export function GameCanvas({ name, net, onNearby }: { name: string; net: NetHand
 
         if (now - lastHud > 250) {
           lastHud = now;
+          audioRef.current?.setRadius(radiusPx);
           const z = zoneAt(cx, cy, map.zones);
           lastNearCount = connectedIds.length;
           const key = connectedIds.slice().sort().join(",");

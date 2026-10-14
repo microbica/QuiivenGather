@@ -27,16 +27,23 @@ Decisiones base: React+TS+PixiJS, Colyseus, Lightsail, monorepo pnpm, auth real.
 - [x] Culling: avatares remotos fuera de viewport + radio se ocultan; `Player.zoneId` reportada por cliente y validada en server
 - DoD: anillo verde = conectado (mock de futuro audio), Sala 1 aísla. Sin WebRTC.
 
-## Fase 3 — Voz/video real (a planificar tras 2.5)
-Requiere decidir: LiveKit Cloud vs self-hosted en Lightsail, dominio+TURN, proveedor auth cerrado.
-- [ ] LiveKit + tokens JWT backend, subscribe por proximidad/zona
-- [ ] coturn TURNS 443/5349 + HMAC efímero
-- [ ] PannerNode equalpower/linear
-- DoD: 2 usuarios cercanos se escuchan con volumen por distancia.
+## Fase 3 — Voz/video mesh P2P (open-source, máx 5 por proximidad) — DECIDIDO 2026-10-14
+Sin SFU ni cloud: malla WebRTC directa entre los ≤5 avatares conectados por
+proximidad (Fase 2.5). Señalización SDP/ICE por Colyseus (TCP, correcto:
+metadata determinista). Audio espacial con `PannerNode(equalpower, linear)`.
+STUN público por defecto (`VITE_STUN_URL`), coturn propio en Fase 5.
+- [ ] Relay `rtc-signal` en `GameRoom` (solo reenvía, nunca media)
+- [ ] `useMeshVoice`: getUserMedia, PC por peer, videos en DOM, mute mic/cam
+- [ ] `spatialAudio.ts`: panner por peer, update por frame con posiciones
+- [ ] Cap `MESH_MAX_PEERS=5` (top-5 más cercanos)
+- DoD: 2-3 tabs cercanas se escuchan/ven con volumen por distancia. ✅ 2026-10-14
+  (`build/lint/test` verde, smoke con `rtc relay` PASS, web 200.
+  Demo manual pendiente en navegador: activar voz/video en 2 tabs y acercar).
 
-## Fase 4 — Smart Objects
+## Fase 4 — Smart Objects (+ Meet embebido)
 - [ ] Registro `objects.json` (id, zoneId, url, w,h), iframe `sandbox="allow-scripts"` sin `allow-same-origin`
 - [ ] Bus `postMessage` (`OBJECT_ENTER/LEAVE`, validación origin), modal React
+- [ ] Objeto `meet`: URL de Google Meet por sala/zona → grupos grandes fuera de proximidad
 - DoD: acercarse a TV abre iframe, alejarse lo pausa/cierra.
 
 ## Fase 5 — Prod Lightsail

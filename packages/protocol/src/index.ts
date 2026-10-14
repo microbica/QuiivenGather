@@ -11,6 +11,7 @@ export const CLIENT_SPEED = 170; // px/s, must stay <= MAX_SPEED
 export const MAX_SPEED = 260; // px/s tolerance for server validation
 export const CHAT_MAX_LEN = 280;
 export const CHAT_HISTORY = 50;
+export const MESH_MAX_PEERS = 5; // Fase 3: malla P2P, tope por proximidad
 export const SPAWN = { x: 20 * TILE + TILE / 2, y: 24 * TILE + TILE / 2 };
 
 /** Jugador. zoneId = "" fuera de zonas; el cliente la reporta (Fase 2.5). */

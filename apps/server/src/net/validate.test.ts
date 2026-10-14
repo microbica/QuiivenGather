@@ -6,6 +6,7 @@ import {
   sanitizeZone,
   validAnim,
   validDir,
+  validSignal,
 } from "./validate";
 
 describe("clampMove", () => {
@@ -52,6 +53,19 @@ describe("chat y nombres", () => {
     expect(sanitizeZone(undefined)).toBe("");
     expect(sanitizeZone(42)).toBe("");
     expect(sanitizeZone("z".repeat(100)).length).toBe(32);
+  });
+
+  it("validSignal solo reenvía a sesiones conectadas con kind válido", () => {
+    const sessions = new Set(["a", "b"]);
+    expect(validSignal({ to: "b", kind: "offer", sdp: "x" }, sessions)).toEqual({
+      to: "b",
+      kind: "offer",
+      sdp: "x",
+      candidate: undefined,
+    });
+    expect(validSignal({ to: "zzz", kind: "offer" }, sessions)).toBeNull();
+    expect(validSignal({ to: "b", kind: "hack" }, sessions)).toBeNull();
+    expect(validSignal({ to: "b", kind: "ice", candidate: "y" }, sessions)?.candidate).toBe("y");
   });
 
   it("dir/anim solo aceptan valores conocidos", () => {

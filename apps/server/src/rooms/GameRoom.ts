@@ -13,6 +13,7 @@ import {
   sanitizeZone,
   validAnim,
   validDir,
+  validSignal,
 } from "../net/validate.js";
 
 interface MoveMsg {
@@ -25,6 +26,13 @@ interface MoveMsg {
 
 interface ChatMsg {
   text?: unknown;
+}
+
+interface SignalMsg {
+  to?: unknown;
+  kind?: unknown;
+  sdp?: unknown;
+  candidate?: unknown;
 }
 
 /** Fase 2: servidor autoritativo. Valida movimiento (anti-teleport) y chat. */
@@ -43,6 +51,11 @@ export class GameRoom extends Room<GameState> {
     );
     this.onMessage("chat", (client, msg: ChatMsg) =>
       this.handleChat(client, msg),
+    );
+    // Fase 3: relay de señalización WebRTC (SDP/ICE). Solo metadata por TCP;
+    // nunca media. El servidor no inspecciona el contenido.
+    this.onMessage("rtc-signal", (client, msg: SignalMsg) =>
+      this.handleSignal(client, msg),
     );
   }
 
@@ -74,6 +87,14 @@ export class GameRoom extends Room<GameState> {
     p.dir = validDir(msg.dir, p.dir);
     p.anim = validAnim(msg.anim, p.anim);
     p.zoneId = sanitizeZone(msg.zone);
+  }
+
+  private handleSignal(client: Client, msg: SignalMsg) {
+    const target = this.clients.find((c) => c.sessionId === msg.to);
+    if (!target) return;
+    const relay = validSignal(msg, new Set(this.clients.map((c) => c.sessionId)));
+    if (!relay) return;
+    target.send("rtc-signal", { from: client.sessionId, ...relay });
   }
 
   private handleChat(client: Client, msg: ChatMsg) {
