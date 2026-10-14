@@ -20,6 +20,7 @@ export interface DbObject {
   id: string;
   label: string;
   kind: string;
+  material: string;
   x: number;
   y: number;
   w: number;
@@ -120,8 +121,8 @@ function seedObjects(): void {
   }
   if (!Array.isArray(raw)) return;
   const stmt = db.prepare(
-    `INSERT INTO objects (id, label, kind, x, y, w, h, radius, url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO objects (id, label, kind, material, x, y, w, h, radius, url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const o of raw as unknown[]) {
     const obj = o as Record<string, unknown>;
@@ -131,6 +132,7 @@ function seedObjects(): void {
       id,
       String(obj.label ?? id),
       String(obj.kind ?? "board"),
+      "wood",
       Number(obj.x ?? 0),
       Number(obj.y ?? 0),
       Number(obj.w ?? 64),
@@ -175,13 +177,14 @@ export function listObjects(): DbObject[] {
 export function upsertObject(o: DbObject): void {
   init()
     .prepare(
-      `INSERT INTO objects (id, label, kind, x, y, w, h, radius, url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO objects (id, label, kind, material, x, y, w, h, radius, url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
-         label=excluded.label, kind=excluded.kind, x=excluded.x, y=excluded.y,
-         w=excluded.w, h=excluded.h, radius=excluded.radius, url=excluded.url`,
+         label=excluded.label, kind=excluded.kind, material=excluded.material,
+         x=excluded.x, y=excluded.y, w=excluded.w, h=excluded.h,
+         radius=excluded.radius, url=excluded.url`,
     )
-    .run(o.id, o.label, o.kind, o.x, o.y, o.w, o.h, o.radius, o.url);
+    .run(o.id, o.label, o.kind, o.material, o.x, o.y, o.w, o.h, o.radius, o.url);
 }
 
 export function deleteObject(id: string): void {

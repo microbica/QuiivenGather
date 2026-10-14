@@ -10,6 +10,7 @@ const tv = {
   id: "tv",
   label: "TV",
   kind: "meet",
+  material: "wood",
   x: 100,
   y: 100,
   w: 64,

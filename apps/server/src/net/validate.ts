@@ -66,6 +66,26 @@ export function sanitizeChat(text: unknown): string | null {
 
 export const SIGNAL_KINDS = ["offer", "answer", "ice"] as const;
 
+export const OBJECT_KINDS = [
+  "meet",
+  "board",
+  "generic",
+  "wall",
+  "window",
+  "door",
+] as const;
+export const OBJECT_MATERIALS = ["wood", "metal", "glass", "stone"] as const;
+
+export function validKind(k: unknown): string {
+  if (typeof k !== "string") return "generic";
+  return (OBJECT_KINDS as readonly string[]).includes(k) ? k : "generic";
+}
+
+export function validMaterial(m: unknown): string {
+  if (typeof m !== "string") return "wood";
+  return (OBJECT_MATERIALS as readonly string[]).includes(m) ? m : "wood";
+}
+
 export interface RelaySignal {
   to: string;
   kind: string;

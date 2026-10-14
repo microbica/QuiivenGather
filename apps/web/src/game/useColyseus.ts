@@ -39,6 +39,7 @@ export interface NetHandle {
     h?: number,
     radius?: number,
     url?: string,
+    material?: string,
   ): void;
   sendObjRemove(id: string): void;
 }
@@ -65,21 +66,44 @@ export function useColyseusRoom(name: string) {
     sendMove: (m) => roomRef.current?.send("move", m),
     sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
     sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
-    sendObjAdd: (label, kind, x, y, w, h, radius, url) =>
-      roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url }),
+    sendObjAdd: (label, kind, x, y, w, h, radius, url, material) =>
+      roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url, material }),
     sendObjRemove: (id) => roomRef.current?.send("obj-remove", { id }),
   }));
 
   const syncObjects = React.useCallback((room: Room<GameState> | null) => {
     if (!room) return;
     const list: SmartObject[] = [];
+    const validKinds: SmartObject["kind"][] = [
+      "meet",
+      "board",
+      "generic",
+      "wall",
+      "window",
+      "door",
+    ];
+    const validMaterials: SmartObject["material"][] = [
+      "wood",
+      "metal",
+      "glass",
+      "stone",
+    ];
     room.state.objects.forEach((o) => {
-      const kind: SmartObject["kind"] =
-        o.kind === "meet" || o.kind === "board" ? o.kind : "generic";
+      const kind: SmartObject["kind"] = (validKinds as readonly string[]).includes(
+        o.kind,
+      )
+        ? (o.kind as SmartObject["kind"])
+        : "generic";
+      const material: SmartObject["material"] = (validMaterials as readonly string[]).includes(
+        o.material,
+      )
+        ? (o.material as SmartObject["material"])
+        : "wood";
       list.push({
         id: o.id,
         label: o.label,
         kind,
+        material,
         x: o.x,
         y: o.y,
         w: o.w,

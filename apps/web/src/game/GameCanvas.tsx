@@ -9,6 +9,7 @@ import {
 } from "./mapLoader";
 import { distancePx, isConnected } from "./proximity";
 import { nearestObject, type SmartObject } from "./objects";
+import { makeAvatarSprite, makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
 import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
 
@@ -50,16 +51,7 @@ interface Remote {
 }
 
 function drawTile(g: Graphics, gid: number, px: number, py: number, t: number) {
-  if (gid === 1) {
-    g.rect(px, py, t, t).fill({ color: (px / t + py / t) % 2 === 0 ? 0x262c38 : 0x222834 });
-  } else if (gid === 2) {
-    g.rect(px, py, t, t).fill({ color: 0x4a5265 });
-    g.rect(px, py, t, 5).fill({ color: 0x707a94 });
-    g.rect(px, py + t - 3, t, 3).fill({ color: 0x333948 });
-  } else if (gid === 3) {
-    g.rect(px, py, t, t).fill({ color: 0x8a5f3c, alpha: 0.92 });
-    g.rect(px, py, t, 4).fill({ color: 0xb98a5a, alpha: 0.92 });
-  }
+  drawTileSprite(g, px, py, t, gid);
 }
 
 function buildLayer(
@@ -90,17 +82,7 @@ function buildLayer(
 }
 
 function makeAvatar(color: number, name: string): { c: Container; label: Text; nub: Graphics; ring: Graphics } {
-  const c = new Container();
-  const body = new Graphics();
-  body.roundRect(0, 0, BODY_W, BODY_H, 6).fill({ color });
-  body.circle(BODY_W / 2, 8, 5).fill({ color: 0xd7e6ff });
-  const nub = new Graphics();
-  const ring = new Graphics();
-  const label = new Text({ text: name, style: { fontSize: 12, fill: 0xffffff } });
-  label.anchor.set(0.5, 1);
-  label.position.set(BODY_W / 2, -4);
-  c.addChild(body, nub, ring, label);
-  return { c, label, nub, ring };
+  return makeAvatarSprite(color, name);
 }
 
 function paintRing(ring: Graphics, connected: boolean) {
@@ -215,14 +197,20 @@ export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, o
           const c = new Container();
           c.eventMode = mode ? "static" : "none";
           c.position.set(o.x, o.y);
-          const rect = new Graphics();
-          rect.rect(0, 0, o.w, o.h).fill({ color: 0x2a3040, alpha: 0.6 }).stroke({ color: 0xf2c14a, width: 2 });
+          const sprite = makeObjectSprite(o.kind, o.w, o.h, o.material);
+          c.addChild(sprite);
           const label = new Text({
-            text: `⌖ ${o.label}${isAdmin ? " ✋" : ""}`,
-            style: { fontSize: 11, fill: 0xf2c14a },
+            text: `${o.label}${mode ? " ✋" : ""}`,
+            style: {
+              fontSize: 11,
+              fill: 0xffffff,
+              fontFamily: "system-ui, sans-serif",
+              stroke: { color: 0x000000, width: 3 },
+            },
           });
-          label.position.set(0, -14);
-          c.addChild(rect, label);
+          label.anchor.set(0.5, 1);
+          label.position.set(o.w / 2, -6);
+          c.addChild(label);
           if (mode) {
             c.cursor = "grab";
             c.on("pointerdown", (e: FederatedPointerEvent) => {
@@ -324,12 +312,17 @@ export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, o
         const moving = vx !== 0 || vy !== 0;
         if (moving) {
           const len = Math.hypot(vx, vy);
+          // Colisión: estáticas del mapa + muros dinámicos (admin-added).
+          // Ventanas y puertas NO bloquean movimiento.
+          const dynamicWalls = objectsRef.current
+            .filter((o) => o.kind === "wall")
+            .map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
           const next = moveWithCollision(
             pos,
             (vx / len) * SPEED * dt,
             (vy / len) * SPEED * dt,
             { w: BODY_W, h: BODY_H },
-            map.collisions,
+            [...map.collisions, ...dynamicWalls],
             { w: map.widthPx, h: map.heightPx },
           );
           pos.x = next.x;

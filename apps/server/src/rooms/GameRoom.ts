@@ -15,6 +15,8 @@ import {
   sanitizeZone,
   validAnim,
   validDir,
+  validKind,
+  validMaterial,
   validSignal,
 } from "../net/validate.js";
 import {
@@ -65,6 +67,7 @@ interface ObjMoveMsg {
 interface ObjAddMsg {
   label?: unknown;
   kind?: unknown;
+  material?: unknown;
   x?: unknown;
   y?: unknown;
   w?: unknown;
@@ -122,7 +125,8 @@ export class GameRoom extends Room<GameState> {
       const g = new GameObject();
       g.id = o.id;
       g.label = o.label;
-      g.kind = o.kind;
+      g.kind = validKind(o.kind);
+      g.material = validMaterial(o.material);
       g.x = o.x;
       g.y = o.y;
       g.w = o.w;
@@ -243,6 +247,7 @@ export class GameRoom extends Room<GameState> {
       id: g.id,
       label: g.label,
       kind: g.kind,
+      material: g.material,
       x: g.x,
       y: g.y,
       w: g.w,
@@ -258,9 +263,8 @@ export class GameRoom extends Room<GameState> {
       typeof msg.label === "string" && msg.label.trim()
         ? msg.label.trim().slice(0, 60)
         : "Objeto";
-    const kind = typeof msg.kind === "string" && msg.kind.trim()
-      ? msg.kind.trim().slice(0, 20)
-      : "board";
+    const kind = validKind(msg.kind);
+    const material = validMaterial(msg.material);
     const w = clampDim(msg.w, 16, 512);
     const h = clampDim(msg.h, 16, 512);
     const radius = clampDim(msg.radius, 0, 512);
@@ -269,6 +273,7 @@ export class GameRoom extends Room<GameState> {
     g.id = `obj-${randomBytes(6).toString("hex")}`;
     g.label = label;
     g.kind = kind;
+    g.material = material;
     g.x = Math.round(Number(msg.x) || 0);
     g.y = Math.round(Number(msg.y) || 0);
     g.w = w;
@@ -280,6 +285,7 @@ export class GameRoom extends Room<GameState> {
       id: g.id,
       label: g.label,
       kind: g.kind,
+      material: g.material,
       x: g.x,
       y: g.y,
       w: g.w,

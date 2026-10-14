@@ -33,11 +33,14 @@ export class ChatMessage extends Schema {
 /**
  * Objeto inteligente del mapa (Fase 6). Server autoritativo (sqlite): el admin
  * puede moverlo, duplicarlo o borrarlo y se propaga a todos en vivo.
+ * `kind`: meet = TV, board = pizarra, wall/window/door = estructural.
+ * `material`: wood | metal | glass | stone (aplica a wall/window/door).
  */
 export class GameObject extends Schema {
   @type("string") id = "";
   @type("string") label = "";
   @type("string") kind = "board";
+  @type("string") material = "wood";
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") w = 0;

@@ -54,6 +54,7 @@ describe("db objects", () => {
       id: "obj-test",
       label: "Test",
       kind: "board",
+      material: "wood",
       x: 10,
       y: 20,
       w: 64,
