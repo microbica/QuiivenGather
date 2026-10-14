@@ -1,0 +1,22 @@
+services:
+  web:
+    build:
+      context: ./apps/web
+    ports:
+      - "5173:5173"
+    environment:
+      # El navegador resuelve esto, no el container → localhost, no "server".
+      - VITE_COLYSEUS_URL=${VITE_COLYSEUS_URL:-ws://localhost:2567}
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: ./apps/server
+    ports:
+      - "2567:2567"
+    env_file:
+      - .env
+    environment:
+      - SERVER_PORT=2567
+      - SERVER_CORS_ORIGIN=${SERVER_CORS_ORIGIN:-http://localhost:5173}

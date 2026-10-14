@@ -1,0 +1,20 @@
+# Deps / build
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Env — nunca commitear .env real (solo .env.example)
+.env
+.env.local
+apps/*/.env
+apps/*/.env.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+# Docker
+docker-compose.override.yml

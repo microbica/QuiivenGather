@@ -1,0 +1,27 @@
+{
+  "name": "gatherquiiven",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.14.0",
+    "prettier": "^3.3.3",
+    "turbo": "^2.5.0",
+    "typescript": "~5.6.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^2.1.5"
+  },
+  "engines": {
+    "node": ">=20 <26",
+    "pnpm": ">=9"
+  }
+}
