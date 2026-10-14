@@ -2,9 +2,11 @@
 import { randomBytes } from "node:crypto";
 import { Router, type Request } from "express";
 import {
+  ALLOWED_DOMAIN,
   buildAuthUrl,
   exchangeCode,
   fetchProfile,
+  isEmailAllowed,
   isGoogleConfigured,
   refreshAccess,
 } from "./google.js";
@@ -92,6 +94,13 @@ export function googleRouter(): Router {
       pendingState.delete(state);
       const tokens = await exchangeCode(code);
       const profile = await fetchProfile(tokens.access_token);
+      // Login del juego: solo dominio permitido (@quiiven.com por defecto).
+      if (!isEmailAllowed(profile.email)) {
+        res.status(403).send(
+          `<!doctype html><html><body><script>window.opener&&window.opener.postMessage({type:"google-denied",reason:"domain"},"${webOrigin()}");window.close();</script><p>Acceso denegado: se requiere cuenta @${ALLOWED_DOMAIN}.</p></body></html>`,
+        );
+        return;
+      }
       const prev = getTokens(profile.sub);
       saveTokens(
         profile.sub,
@@ -114,11 +123,12 @@ export function googleRouter(): Router {
   r.get("/auth/google/status", (req, res) => {
     const sub = requireSession(req);
     if (!sub) {
-      res.json({ linked: false, configured: isGoogleConfigured() });
+      res.json({ linked: false, configured: isGoogleConfigured(), authorized: false });
       return;
     }
     const t = getTokens(sub);
-    res.json({ linked: !!t, email: t?.email ?? null });
+    const authorized = !!t && isEmailAllowed(t.email);
+    res.json({ linked: !!t, email: t?.email ?? null, authorized });
   });
 
   r.post("/auth/google/unlink", (req, res) => {

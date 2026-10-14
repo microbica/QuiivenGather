@@ -58,9 +58,10 @@ en la TV Sala 1 (objeto `kind=meet`) en lugar del placeholder.
 - [x] `apps/server/src/auth/routes.ts`: `/auth/google`, callback, status, unlink, `/api/calendar/events`, `/api/meetings`
 - [x] `GameRoom`: `onAuth` lee cookie en upgrade WS, `set-meet` solo para vinculados
 - [x] Web: `api/google.ts` + `ui/GooglePanel.tsx` + Meet en vivo en `SmartObjectModal`
-- [x] Tests: `validMeetUrl`, round-trip token store, link de sesión/cookie
-- DoD: usuario vincula Google, ve "Mi día", crea Meet y aparece en TV Sala 1; build/lint/test verdes.
-  Demo manual pendiente: flujo popup en navegador + crear Meet publicado.
+- [x] **Login del juego con Google `@quiiven.com`**: gate en web (`LoginGate`), rechazo en `GameRoom.onAuth` (defensa en profundidad), nombre autoritativo del perfil. `GOOGLE_ALLOWED_DOMAIN` / `GOOGLE_ALLOWED_EMAILS`.
+- [x] Tests: `validMeetUrl`, `isEmailAllowed`, round-trip token store, link de sesión/cookie
+- DoD: solo @quiiven.com entra; no autorizado ve pantalla de login y el server rechaza el join; build/lint/test verdes.
+  Demo manual pendiente: flujo popup en navegador + crear Meet publicado + acceso denegado con otra cuenta.
 
 ## Fase 5 — Prod Lightsail
 - [ ] Compose prod, Caddy/Nginx TLS, backups, Datadog/Grafana básico, hardening TURN

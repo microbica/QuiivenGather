@@ -28,6 +28,21 @@ export function isGoogleConfigured(): boolean {
   return clientId.length > 0 && clientSecret.length > 0;
 }
 
+// Login del juego: solo dominio corporativo (Fase 5 / auth real).
+export const ALLOWED_DOMAIN = (
+  process.env.GOOGLE_ALLOWED_DOMAIN ?? "quiiven.com"
+).toLowerCase();
+export const ALLOWED_EMAILS = (process.env.GOOGLE_ALLOWED_EMAILS ?? "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+export function isEmailAllowed(email: string): boolean {
+  const e = email.toLowerCase();
+  if (ALLOWED_EMAILS.includes(e)) return true;
+  return e.endsWith(`@${ALLOWED_DOMAIN}`);
+}
+
 export function buildAuthUrl(state: string): string {
   const { clientId, redirectUri } = googleEnv();
   const q = new URLSearchParams({

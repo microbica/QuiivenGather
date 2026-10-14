@@ -8,42 +8,115 @@ import { SmartObjectModal } from "./ui/SmartObjectModal";
 import { VoicePanel } from "./ui/VoicePanel";
 import { GooglePanel } from "./ui/GooglePanel";
 import type { CalendarEvent } from "./api/google";
+import { getStatus, startOAuth, type GoogleStatus } from "./api/google";
 
-function initialName(): string {
-  const saved = localStorage.getItem("gq-name");
-  if (saved?.trim()) return saved;
-  return `guest-${Math.floor(1000 + Math.random() * 9000)}`;
+function displayName(email: string): string {
+  const local = email.split("@")[0] ?? email;
+  return local.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function App() {
-  const [name, setName] = React.useState(initialName);
+/** Pantalla de login: solo Google @quiiven.com. */
+function LoginGate({ onAuthorized }: { onAuthorized: (s: GoogleStatus) => void }) {
+  const [status, setStatus] = React.useState<GoogleStatus | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [denied, setDenied] = React.useState(false);
+
+  const refresh = React.useCallback(async () => {
+    const s = await getStatus();
+    setStatus(s);
+    if (s.authorized) onAuthorized(s);
+    return s;
+  }, [onAuthorized]);
+
+  React.useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const onLogin = async () => {
+    setBusy(true);
+    setDenied(false);
+    const r = await startOAuth();
+    setBusy(false);
+    if (r.denied) {
+      setDenied(true);
+      return;
+    }
+    await refresh();
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#0b0e16",
+        color: "#e8ecf4",
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          textAlign: "center",
+          background: "#141a28",
+          padding: 32,
+          borderRadius: 14,
+          border: "1px solid #2a3346",
+          maxWidth: 360,
+        }}
+      >
+        <h1 style={{ margin: "0 0 4px", fontSize: 22 }}>gatherQuiiven</h1>
+        <p style={{ color: "#9aa6bd", margin: "0 0 20px", fontSize: 13 }}>
+          Oficina virtual. Acceso solo para @quiiven.com.
+        </p>
+        <button
+          onClick={onLogin}
+          disabled={busy || status?.configured === false}
+          style={{
+            background: "#1a73e8",
+            color: "#fff",
+            border: 0,
+            padding: "12px 22px",
+            borderRadius: 8,
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {busy ? "Abriendo…" : "Iniciar sesión con Google"}
+        </button>
+        {status?.configured === false && (
+          <p style={{ color: "#c33", fontSize: 12, marginTop: 14 }}>
+            OAuth no configurado en el server (.env GOOGLE_*).
+          </p>
+        )}
+        {denied && (
+          <p style={{ color: "#c33", fontSize: 12, marginTop: 14 }}>
+            Acceso denegado: se requiere una cuenta @quiiven.com.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Juego una vez autenticado. */
+function GameApp({ name }: { name: string }) {
   const [nearby, setNearby] = React.useState<string[]>([]);
   const [activeObject, setActiveObject] = React.useState<SmartObject | null>(null);
   const [calendarMeets, setCalendarMeets] = React.useState<CalendarEvent[]>([]);
   const { status, roster, messages, sendChat, net, meetUrl } = useColyseusRoom(name);
   const voice = useMeshVoice(net);
 
-  const onName = React.useCallback((n: string) => {
-    setName(n);
-    localStorage.setItem("gq-name", n);
-  }, []);
-
+  const onNearby = React.useCallback((ids: string[]) => setNearby(ids), []);
+  const onObject = React.useCallback((obj: SmartObject | null) => setActiveObject(obj), []);
   const onPublishMeet = React.useCallback(
-    (url: string) => {
-      net.sendSetMeet(url);
-    },
+    (url: string) => net.sendSetMeet(url),
     [net],
   );
 
-  const onNearby = React.useCallback((ids: string[]) => {
-    setNearby(ids);
-  }, []);
-
-  const onObject = React.useCallback((obj: SmartObject | null) => {
-    setActiveObject(obj);
-  }, []);
-
-  // Malla P2P sigue a la lista de proximidad (capada a MESH_MAX_PEERS).
   React.useEffect(() => {
     voice.syncPeers(nearby);
   }, [nearby, voice]);
@@ -62,7 +135,7 @@ export function App() {
         nearby={nearby}
         messages={messages}
         name={name}
-        onName={onName}
+        onName={() => undefined}
         sendChat={sendChat}
       />
       <VoicePanel
@@ -92,4 +165,13 @@ export function App() {
       )}
     </div>
   );
+}
+
+export function App() {
+  const [auth, setAuth] = React.useState<GoogleStatus | null>(null);
+
+  if (!auth || !auth.authorized) {
+    return <LoginGate onAuthorized={setAuth} />;
+  }
+  return <GameApp name={displayName(auth.email ?? "user")} />;
 }

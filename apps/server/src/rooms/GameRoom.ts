@@ -21,7 +21,8 @@ import {
   unlinkColyseus,
   linkedSub as linkedSubLookup,
 } from "../auth/sessions.js";
-import { validMeetUrl as validMeet } from "../auth/google.js";
+import { validMeetUrl as validMeet, isEmailAllowed } from "../auth/google.js";
+import { getTokens } from "../auth/store.js";
 
 interface MoveMsg {
   x?: unknown;
@@ -74,15 +75,29 @@ export class GameRoom extends Room<GameState> {
     );
   }
 
-  // Lee la cookie gq_session del upgrade WS y vincula con la cuenta Google.
+  // Login del juego: requiere cookie de sesión Google Y dominio permitido.
+  // En producción, sin eso onAuth devuelve null y Colyseus rechaza el join.
+  // Fuera de producción (dev/smoke) se permite guest para pruebas automáticas.
   onAuth(_client: Client, _options: unknown, request: { headers?: { cookie?: string } }) {
     const sub = sessionSub(request?.headers?.cookie);
-    return { googleSub: sub ?? null };
+    if (sub) {
+      const stored = getTokens(sub);
+      if (stored && isEmailAllowed(stored.email)) {
+        return { googleSub: sub, name: stored.name, email: stored.email };
+      }
+    }
+    if (process.env.NODE_ENV === "production") return null;
+    return { googleSub: null, name: undefined };
   }
 
-  onJoin(client: Client, options: { name?: string } = {}, auth: { googleSub?: string | null } = {}) {
+  onJoin(
+    client: Client,
+    options: { name?: string } = {},
+    auth: { googleSub?: string | null; name?: string } = {},
+  ) {
     const p = new Player();
-    p.name = sanitizeName(options.name, `guest-${client.sessionId.slice(0, 4)}`);
+    // Nombre autoritativo del perfil de Google; fallback a lo que envíe el cliente.
+    p.name = sanitizeName(auth?.name ?? options?.name, `user-${client.sessionId.slice(0, 4)}`);
     p.x = Math.round(SPAWN.x - 10 + (Math.random() * 60 - 30));
     p.y = Math.round(SPAWN.y - 14 + (Math.random() * 40 - 20));
     this.state.players.set(client.sessionId, p);

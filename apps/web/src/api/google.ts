@@ -4,6 +4,7 @@ const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:2567";
 export interface GoogleStatus {
   linked: boolean;
   configured: boolean;
+  authorized: boolean;
   email?: string | null;
 }
 
@@ -57,8 +58,8 @@ export async function createMeeting(
   return json(r);
 }
 
-/** Abre el flujo OAuth en popup y resuelve al cerrarse (cuando enlace). */
-export function startOAuth(): Promise<boolean> {
+/** Abre el flujo OAuth en popup y resuelve con el resultado. */
+export function startOAuth(): Promise<{ ok: boolean; denied?: boolean }> {
   return new Promise((resolve) => {
     const w = window.open(
       `${BASE}/auth/google`,
@@ -66,20 +67,23 @@ export function startOAuth(): Promise<boolean> {
       "width=480,height=640",
     );
     if (!w) {
-      resolve(false);
+      resolve({ ok: false });
       return;
     }
     const onMsg = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === "google-linked") {
         cleanup();
-        resolve(true);
+        resolve({ ok: true });
+      } else if (e.data?.type === "google-denied") {
+        cleanup();
+        resolve({ ok: false, denied: true });
       }
     };
     const onPoll = setInterval(() => {
       if (w.closed) {
         cleanup();
-        resolve(false);
+        resolve({ ok: false });
       }
     }, 500);
     const cleanup = () => {

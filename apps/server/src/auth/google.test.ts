@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { validMeetUrl } from "./google.js";
+import { isEmailAllowed, validMeetUrl } from "./google.js";
+
+describe("isEmailAllowed (login @quiiven.com)", () => {
+  it("allows @quiiven.com and rejects other domains", () => {
+    expect(isEmailAllowed("alejandro.moreno@quiiven.com")).toBe(true);
+    expect(isEmailAllowed("x@gmail.com")).toBe(false);
+    expect(isEmailAllowed("x@quiiven.com.evil.com")).toBe(false);
+  });
+});
 
 describe("validMeetUrl", () => {
   it("accepts https meet urls", () => {
