@@ -449,7 +449,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
     <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden" }}>
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
       <div className="q-panel q-topbar">
-        <img src={`${import.meta.env.BASE_URL}brand/logo-carbon.png`} alt="Quiiven" />
+        <img src={`${import.meta.env.BASE_URL}brand/logo-color.png`} alt="Quiiven" />
         <span className="q-zone">
           {hud.zone === "—" ? "Área común" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
         </span>

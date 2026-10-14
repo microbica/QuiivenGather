@@ -429,65 +429,30 @@ input {
 }
 
 /* ---------- Login ---------- */
+/* Copy on the left; on the right the multi-area band (teal -> yellow) with
+   two glass shapes resting on it. Near-white paper with grain behind. */
 .q-login {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-columns: 1.15fr 1fr;
+  grid-template-columns: minmax(360px, 1fr) 1.1fr;
   background: var(--q-grain), var(--q-paper);
   overflow: hidden;
-}
-/* Diagonal teal -> yellow band (reference: Quiiven general-topic pieces). */
-.q-login__art {
-  position: relative;
-  margin: 0;
-}
-.q-login__art::before,
-.q-login__art::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(48px);
-  transform: rotate(18deg);
-}
-.q-login__art::before {
-  width: 78%;
-  height: 26%;
-  left: -14%;
-  top: 34%;
-  background: linear-gradient(90deg, rgba(24, 211, 184, 0) 0, var(--q-teal) 45%, rgba(14, 173, 154, 0.7) 100%);
-}
-.q-login__art::after {
-  width: 62%;
-  height: 20%;
-  left: 30%;
-  top: 56%;
-  background: linear-gradient(90deg, rgba(255, 174, 0, 0.35) 0, var(--q-yellow) 55%, rgba(255, 174, 0, 0) 100%);
-}
-.q-login__art img {
-  position: absolute;
-  z-index: 1;
-  width: min(52%, 460px);
-  left: 18%;
-  top: 22%;
-  pointer-events: none;
 }
 .q-login__side {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 56px 64px;
+  padding: 48px 56px;
   gap: 32px;
   position: relative;
   z-index: 1;
 }
 .q-login__side img.logo {
-  width: min(360px, 70%);
-  align-self: flex-end;
+  width: 168px;
 }
 .q-login__copy {
   max-width: 420px;
-  align-self: flex-end;
 }
 .q-login__copy h1 {
   margin: 0 0 14px;
@@ -498,19 +463,80 @@ input {
   color: var(--q-carbon);
   text-wrap: balance;
 }
+/* Emphasis carries the same teal -> yellow flow as the band. */
+.q-login__copy h1 em {
+  font-style: normal;
+  background: linear-gradient(90deg, var(--q-teal-dark) 0, var(--q-teal) 35%, var(--q-yellow) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 .q-login__copy p {
   margin: 0 0 28px;
   font-size: 16px;
   line-height: 24px;
   color: var(--q-text-2);
 }
+.q-login__copy .q-btn {
+  padding: 14px 24px;
+  font-size: 15px;
+}
 .q-login__error {
   margin-top: 14px;
   color: var(--q-flame);
   font-size: 13px;
 }
-.q-login__foot {
-  align-self: flex-end;
+.q-login__art {
+  position: relative;
+  margin: 0;
+}
+.q-login__art::before,
+.q-login__art::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(52px);
+  transform: rotate(-22deg);
+}
+.q-login__art::before {
+  width: 80%;
+  height: 24%;
+  left: -6%;
+  top: 52%;
+  background: linear-gradient(90deg, rgba(24, 211, 184, 0) 0, var(--q-teal) 40%, rgba(14, 173, 154, 0.75) 100%);
+}
+.q-login__art::after {
+  width: 66%;
+  height: 20%;
+  left: 38%;
+  top: 30%;
+  background: linear-gradient(90deg, rgba(255, 174, 0, 0.3) 0, var(--q-yellow) 55%, rgba(255, 174, 0, 0) 100%);
+}
+.q-login__art img {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+.q-login__art .glass-1 {
+  width: min(58%, 520px);
+  left: 18%;
+  top: 18%;
+}
+.q-login__art .glass-2 {
+  width: min(16%, 150px);
+  left: 6%;
+  top: 8%;
+}
+.q-login__art figcaption {
+  position: absolute;
+  z-index: 1;
+  left: 28px;
+  bottom: 32px;
+  color: var(--q-carbon);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 24px;
+  max-width: 260px;
 }
 @media (max-width: 820px) {
   .q-login {
@@ -519,15 +545,11 @@ input {
   .q-login__art {
     position: absolute;
     inset: 0;
-    opacity: 0.55;
+    opacity: 0.5;
   }
-  .q-login__art img {
+  .q-login__art img,
+  .q-login__art figcaption {
     display: none;
-  }
-  .q-login__side img.logo,
-  .q-login__copy,
-  .q-login__foot {
-    align-self: flex-start;
   }
   .q-login__side {
     padding: 32px 24px;

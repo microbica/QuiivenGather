@@ -54,25 +54,22 @@ function LoginGate({
   const asset = import.meta.env.BASE_URL;
   return (
     <main className="q-login">
-      <figure className="q-login__art" aria-hidden="true">
-        <img src={`${asset}brand/vidrio-torus-knot.webp`} alt="" />
-      </figure>
       <section className="q-login__side">
-        <img className="logo" src={`${asset}brand/logo-carbon.png`} alt="Quiiven" />
+        <img className="logo" src={`${asset}brand/logo-color.png`} alt="Quiiven" />
         <div className="q-login__copy">
-          <h1>Nuestra oficina, sin distancia.</h1>
+          <h1>
+            Nuestra oficina, <em>sin distancia.</em>
+          </h1>
           <p>
             Entra con tu cuenta @quiiven.com, muévete por el mapa y acércate a tu
             equipo para hablar.
           </p>
           <button
-            className="q-btn q-btn--outline"
+            className="q-btn q-btn--primary"
             onClick={onLogin}
             disabled={busy || status?.configured === false}
           >
-            <span className="q-btn__seg" aria-hidden="true" style={{ fontSize: 22 }}>→</span>
-            <span className="q-btn__seg q-btn__seg--ring" aria-hidden="true">✱</span>
-            <span className="q-btn__seg">{busy ? "Abriendo Google…" : "Entrar con Google"}</span>
+            {busy ? "Abriendo Google…" : "Entrar con Google"}
           </button>
           {status?.configured === false && (
             <p className="q-login__error">
@@ -85,8 +82,13 @@ function LoginGate({
             </p>
           )}
         </div>
-        <span className="q-login__foot q-small q-muted">Oficina virtual · Quiiven.com</span>
+        <span className="q-small q-muted">Quick · Quality — Oficina virtual Quiiven</span>
       </section>
+      <figure className="q-login__art" aria-hidden="true">
+        <img className="glass-1" src={`${asset}brand/vidrio-organic-ball.webp`} alt="" />
+        <img className="glass-2" src={`${asset}brand/vidrio-round-cube.webp`} alt="" />
+        <figcaption>Cerca, aunque estemos lejos.</figcaption>
+      </figure>
     </main>
   );
 }
