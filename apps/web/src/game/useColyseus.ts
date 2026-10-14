@@ -27,6 +27,7 @@ export interface NetHandle {
   getRoom(): Room<GameState> | null;
   sessionId: string | null;
   sendMove(m: MoveOut): void;
+  sendSetMeet(url: string): void;
 }
 
 export type NetStatus = "connecting" | "online" | "offline";
@@ -43,10 +44,12 @@ export function useColyseusRoom(name: string) {
   const [status, setStatus] = React.useState<NetStatus>("connecting");
   const [roster, setRoster] = React.useState<RosterEntry[]>([]);
   const [messages, setMessages] = React.useState<ChatEntry[]>([]);
+  const [meetUrl, setMeetUrl] = React.useState<string>("");
   const [net] = React.useState<NetHandle>(() => ({
     getRoom: () => roomRef.current,
     sessionId: null,
     sendMove: (m) => roomRef.current?.send("move", m),
+    sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
   }));
 
   React.useEffect(() => {
@@ -77,6 +80,7 @@ export function useColyseusRoom(name: string) {
       $(room.state).messages.onAdd((m) => {
         setMessages((prev) => [...prev.slice(-49), { name: m.name, text: m.text, ts: m.ts }]);
       });
+      $(room.state).listen("meetUrl", (value: string) => setMeetUrl(value));
       syncRoster();
       setStatus("online");
     })().catch(() => {
@@ -95,5 +99,5 @@ export function useColyseusRoom(name: string) {
     roomRef.current?.send("chat", { text });
   }, []);
 
-  return { status, roster, messages, sendChat, net };
+  return { status, roster, messages, sendChat, net, meetUrl };
 }

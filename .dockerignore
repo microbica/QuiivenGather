@@ -1,0 +1,10 @@
+# Evita subir node_modules/.git/.env al daemon Docker (contexto raíz del monorepo).
+node_modules
+.turbo
+apps/*/dist
+apps/*/node_modules
+packages/*/dist
+packages/*/node_modules
+.git
+.env
+*.log

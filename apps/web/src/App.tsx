@@ -2,8 +2,12 @@ import React from "react";
 import { GameCanvas } from "./game/GameCanvas";
 import { useColyseusRoom } from "./game/useColyseus";
 import { useMeshVoice } from "./game/useMeshVoice";
+import type { SmartObject } from "./game/objects";
 import { Sidebar } from "./ui/Sidebar";
+import { SmartObjectModal } from "./ui/SmartObjectModal";
 import { VoicePanel } from "./ui/VoicePanel";
+import { GooglePanel } from "./ui/GooglePanel";
+import type { CalendarEvent } from "./api/google";
 
 function initialName(): string {
   const saved = localStorage.getItem("gq-name");
@@ -14,7 +18,9 @@ function initialName(): string {
 export function App() {
   const [name, setName] = React.useState(initialName);
   const [nearby, setNearby] = React.useState<string[]>([]);
-  const { status, roster, messages, sendChat, net } = useColyseusRoom(name);
+  const [activeObject, setActiveObject] = React.useState<SmartObject | null>(null);
+  const [calendarMeets, setCalendarMeets] = React.useState<CalendarEvent[]>([]);
+  const { status, roster, messages, sendChat, net, meetUrl } = useColyseusRoom(name);
   const voice = useMeshVoice(net);
 
   const onName = React.useCallback((n: string) => {
@@ -22,8 +28,19 @@ export function App() {
     localStorage.setItem("gq-name", n);
   }, []);
 
+  const onPublishMeet = React.useCallback(
+    (url: string) => {
+      net.sendSetMeet(url);
+    },
+    [net],
+  );
+
   const onNearby = React.useCallback((ids: string[]) => {
     setNearby(ids);
+  }, []);
+
+  const onObject = React.useCallback((obj: SmartObject | null) => {
+    setActiveObject(obj);
   }, []);
 
   // Malla P2P sigue a la lista de proximidad (capada a MESH_MAX_PEERS).
@@ -62,7 +79,17 @@ export function App() {
         onToggleAudio={voice.toggleAudio}
         onToggleVideo={voice.toggleVideo}
       />
-      <GameCanvas name={name} net={net} onNearby={onNearby} audio={voice.audio} />
+      <GooglePanel net={net} onEvents={setCalendarMeets} />
+      <GameCanvas name={name} net={net} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
+      {activeObject && (
+        <SmartObjectModal
+          obj={activeObject}
+          liveMeetUrl={meetUrl}
+          calendarMeets={calendarMeets}
+          onPublishMeet={onPublishMeet}
+          onClose={() => setActiveObject(null)}
+        />
+      )}
     </div>
   );
 }

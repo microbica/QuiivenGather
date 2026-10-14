@@ -33,4 +33,6 @@ export class ChatMessage extends Schema {
 export class GameState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([ChatMessage]) messages = new ArraySchema<ChatMessage>();
+  /** Meet en vivo publicado por un usuario vinculado (Fase 4.5). "" = ninguno. */
+  @type("string") meetUrl = "";
 }

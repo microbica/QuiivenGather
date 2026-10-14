@@ -1,0 +1,66 @@
+# Despliegue al ambiente de test (Lightsail 100.53.243.240).
+# Se ejecuta en el runner self-hosted instalado en esa máquina:
+# cada push a main valida (install/build/lint/test) y levanta docker compose.
+# El ci.yml existente sigue validando todo push/PR en la nube (ubuntu-latest).
+name: deploy-test
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+
+jobs:
+  test-and-deploy:
+    runs-on: [self-hosted, lightsail]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm test
+
+      - name: Escribir .env de test (no se versiona)
+        run: |
+          cat > .env <<EOF
+          NODE_ENV=development
+          APP_NAME=gatherQuiiven
+          VITE_COLYSEUS_URL=ws://100.53.243.240:2567
+          VITE_MAP_DEFAULT=/maps/demo.tmj
+          VITE_PROXIMITY_RADIUS_TILES=5
+          VITE_AUTH_PROVIDER=none
+          VITE_CLERK_PUBLISHABLE_KEY=
+          VITE_SUPABASE_URL=
+          VITE_SUPABASE_ANON_KEY=
+          SERVER_PORT=2567
+          SERVER_CORS_ORIGIN=http://100.53.243.240:5173
+          GAME_PATCH_RATE=50
+          GAME_MAX_CLIENTS=50
+          JWT_SECRET=${{ secrets.JWT_SECRET_TEST }}
+          LIVEKIT_URL=
+          LIVEKIT_API_KEY=
+          LIVEKIT_API_SECRET=
+          TURN_SECRET=
+          REDIS_URL=
+          EOF
+
+      - name: Desplegar con Docker Compose
+        run: docker compose up --build -d
+
+      - name: Verificar despliegue
+        run: |
+          sleep 8
+          curl -fsS http://localhost:5173/ -o /dev/null
+          docker compose logs --tail=5 server
+          docker compose ps

@@ -8,6 +8,7 @@ import {
   type GameMap,
 } from "./mapLoader";
 import { distancePx, isConnected } from "./proximity";
+import { nearestObject, resolveObjects, type SmartObject } from "./objects";
 import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
 
@@ -109,12 +110,14 @@ function paintRing(ring: Graphics, connected: boolean) {
     .stroke({ color: connected ? 0x51d88a : 0x5a6376, width: 2 });
 }
 
-export function GameCanvas({ name, net, onNearby, audio }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void; audio: SpatialAudio | null }) {
+export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   const nameRef = React.useRef(name);
   nameRef.current = name;
   const onNearbyRef = React.useRef(onNearby);
   onNearbyRef.current = onNearby;
+  const onObjectRef = React.useRef(onObject);
+  onObjectRef.current = onObject;
   const audioRef = React.useRef(audio);
   audioRef.current = audio;
   const [hud, setHud] = React.useState<Hud>({
@@ -154,6 +157,10 @@ export function GameCanvas({ name, net, onNearby, audio }: { name: string; net: 
       const res = await fetch(mapUrl);
       if (!res.ok) throw new Error(`map fetch failed: ${mapUrl}`);
       const map = parseMap(await res.json());
+      const objects = resolveObjects(
+        await fetch("/objects.json").then((r) => (r.ok ? r.json() : [])),
+        import.meta.env.VITE_MEET_URL ?? "",
+      );
       if (cancelled) return;
 
       app = new Application();
@@ -177,6 +184,19 @@ export function GameCanvas({ name, net, onNearby, audio }: { name: string; net: 
       const wallChunks = buildLayer(map, map.walls, objectC);
       const roofChunks = buildLayer(map, map.roof, roofC);
       const allChunks = [...groundChunks, ...wallChunks, ...roofChunks];
+
+      // Smart Object markers (amber) so they are discoverable on the map.
+      for (const o of objects) {
+        const m = new Graphics();
+        m.rect(o.x, o.y, o.w, o.h).stroke({ color: 0xf2c14a, width: 2 });
+        const t = new Text({
+          text: `⌖ ${o.label}`,
+          style: { fontSize: 11, fill: 0xf2c14a },
+        });
+        t.position.set(o.x, o.y - 14);
+        m.addChild(t);
+        objectC.addChild(m);
+      }
 
       const local = makeAvatar(0x4f8ff7, nameRef.current);
       avatarC.addChild(local.c);
@@ -212,6 +232,7 @@ export function GameCanvas({ name, net, onNearby, audio }: { name: string; net: 
       let lastSent = "";
       let lastNearby = "";
       let lastNearCount = 0;
+      let lastObjectId: string | null = null;
 
       const drawNub = (nub: Graphics) => {
         nub.clear();
@@ -349,6 +370,13 @@ export function GameCanvas({ name, net, onNearby, audio }: { name: string; net: 
         if (now - lastHud > 250) {
           lastHud = now;
           audioRef.current?.setRadius(radiusPx);
+          // Smart Object enter/leave (Fase 4).
+          const near = nearestObject({ x: cx, y: cy }, objects);
+          const nearId = near?.id ?? null;
+          if (nearId !== lastObjectId) {
+            lastObjectId = nearId;
+            onObjectRef.current(near);
+          }
           const z = zoneAt(cx, cy, map.zones);
           lastNearCount = connectedIds.length;
           const key = connectedIds.slice().sort().join(",");

@@ -40,11 +40,27 @@ STUN público por defecto (`VITE_STUN_URL`), coturn propio en Fase 5.
   (`build/lint/test` verde, smoke con `rtc relay` PASS, web 200.
   Demo manual pendiente en navegador: activar voz/video en 2 tabs y acercar).
 
-## Fase 4 — Smart Objects (+ Meet embebido)
-- [ ] Registro `objects.json` (id, zoneId, url, w,h), iframe `sandbox="allow-scripts"` sin `allow-same-origin`
-- [ ] Bus `postMessage` (`OBJECT_ENTER/LEAVE`, validación origin), modal React
-- [ ] Objeto `meet`: URL de Google Meet por sala/zona → grupos grandes fuera de proximidad
-- DoD: acercarse a TV abre iframe, alejarse lo pausa/cierra.
+## Fase 4 — Smart Objects (+ Meet embebido) ✅ 2026-10-14
+- [x] Registro `objects.json` (id, zoneId, url, w,h), iframe `sandbox="allow-scripts"` sin `allow-same-origin`
+- [x] Bus `postMessage` (`OBJECT_ENTER/LEAVE`, validación origin), modal React
+- [x] Objeto `meet`: URL de Google Meet por sala/zona → grupos grandes fuera de proximidad (`VITE_MEET_URL`)
+- DoD: acercarse a TV abre iframe, alejarse lo pausa/cierra (modal + `objects.json` servido, 4 tests).
+
+## Fase 4.5 — Google OAuth + Calendar + Meet (2026-10-14)
+Vinculación de cuenta Google por usuario (server-side OAuth, secret nunca en
+cliente). Calendario (solo lectura) + creación de reuniones con Meet adjunto,
+publicadas en vivo en `GameState.meetUrl` (solo usuarios vinculados) y mostradas
+en la TV Sala 1 (objeto `kind=meet`) en lugar del placeholder.
+- [x] `@quiiven/protocol`: `GameState.meetUrl` (`string`, vacío = ninguno)
+- [x] `apps/server/src/auth/google.ts`: OAuth, intercambio/refresh, perfil, `validMeetUrl`
+- [x] `apps/server/src/auth/store.ts`: refresh tokens cifrados AES-256-GCM en disco (`GOOGLE_TOKEN_KEY`)
+- [x] `apps/server/src/auth/sessions.ts`: cookie httpOnly ↔ google sub; link con sesión Colyseus
+- [x] `apps/server/src/auth/routes.ts`: `/auth/google`, callback, status, unlink, `/api/calendar/events`, `/api/meetings`
+- [x] `GameRoom`: `onAuth` lee cookie en upgrade WS, `set-meet` solo para vinculados
+- [x] Web: `api/google.ts` + `ui/GooglePanel.tsx` + Meet en vivo en `SmartObjectModal`
+- [x] Tests: `validMeetUrl`, round-trip token store, link de sesión/cookie
+- DoD: usuario vincula Google, ve "Mi día", crea Meet y aparece en TV Sala 1; build/lint/test verdes.
+  Demo manual pendiente: flujo popup en navegador + crear Meet publicado.
 
 ## Fase 5 — Prod Lightsail
 - [ ] Compose prod, Caddy/Nginx TLS, backups, Datadog/Grafana básico, hardening TURN

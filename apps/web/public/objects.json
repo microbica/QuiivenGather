@@ -1,0 +1,24 @@
+[
+  {
+    "id": "tv-sala1",
+    "label": "TV Sala 1 — Meet",
+    "kind": "meet",
+    "x": 128,
+    "y": 80,
+    "w": 64,
+    "h": 40,
+    "radius": 96,
+    "url": ""
+  },
+  {
+    "id": "board-plaza",
+    "label": "Pizarra Plaza",
+    "kind": "board",
+    "x": 704,
+    "y": 704,
+    "w": 64,
+    "h": 40,
+    "radius": 96,
+    "url": "https://excalidraw.com/"
+  }
+]
