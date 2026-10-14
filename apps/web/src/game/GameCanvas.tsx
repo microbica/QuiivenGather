@@ -50,15 +50,15 @@ interface Remote {
 }
 
 // Brand palette for the map (manual Quiiven 2026): light neutral floor,
-// Carbón walls with a Yellow Sea edge, Yellow Sea rugs.
+// Carbón walls, neutral rugs (rooms get area colors in step 2).
 const MAP = {
   floorA: 0xf1f1f4,
   floorB: 0xe9e9ee,
   wall: 0x2c2c33,
   wallTop: 0x4a4a55,
-  wallEdge: 0xffae00,
-  rug: 0xffae00,
-  rugTop: 0xf4c567,
+  wallEdge: 0x2c2c33,
+  rug: 0xe2e2e8,
+  rugTop: 0xd3d3db,
   object: 0xe59a05,
 } as const;
 
@@ -223,7 +223,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       for (const o of objects) {
         const m = new Graphics();
         m.roundRect(o.x, o.y, o.w, o.h, 6)
-          .fill({ color: MAP.rug, alpha: 0.18 })
+          .fill({ color: 0xffae00, alpha: 0.12 })
           .stroke({ color: MAP.object, width: 2 });
         const t = new Text({
           text: `✦ ${o.label}`,
@@ -449,7 +449,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
     <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden" }}>
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
       <div className="q-panel q-topbar">
-        <img src={`${import.meta.env.BASE_URL}brand/logo-color.png`} alt="Quiiven" />
+        <img src={`${import.meta.env.BASE_URL}brand/logo-carbon.png`} alt="Quiiven" />
         <span className="q-zone">
           {hud.zone === "—" ? "Área común" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
         </span>
