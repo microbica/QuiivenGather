@@ -40,6 +40,7 @@ jobs:
           VITE_MAP_DEFAULT=/maps/demo.tmj
           VITE_PROXIMITY_RADIUS_TILES=5
           VITE_AUTH_PROVIDER=none
+          VITE_API_BASE=https://gather.quiiven.com
           VITE_CLERK_PUBLISHABLE_KEY=
           VITE_SUPABASE_URL=
           VITE_SUPABASE_ANON_KEY=
@@ -53,6 +54,11 @@ jobs:
           LIVEKIT_API_SECRET=
           TURN_SECRET=
           REDIS_URL=
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID_TEST }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET_TEST }}
+          GOOGLE_REDIRECT_URI=https://gather.quiiven.com/auth/google/callback
+          GOOGLE_ALLOWED_DOMAIN=quiiven.com
+          GOOGLE_TOKEN_KEY=${{ secrets.GOOGLE_TOKEN_KEY_TEST }}
           EOF
 
       - name: Desplegar con Docker Compose

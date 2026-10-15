@@ -23,11 +23,14 @@ services:
         VITE_MAP_DEFAULT: ${VITE_MAP_DEFAULT:-/maps/demo.tmj}
         VITE_PROXIMITY_RADIUS_TILES: ${VITE_PROXIMITY_RADIUS_TILES:-5}
         VITE_AUTH_PROVIDER: ${VITE_AUTH_PROVIDER:-none}
+        # API de Google en el navegador: sin esto defaulta a localhost y el login roto en remoto.
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:2567}
     ports:
       - "5173:5173"
     environment:
       # El navegador resuelve esto, no el container → dominio, no "server".
       - VITE_COLYSEUS_URL=${VITE_COLYSEUS_URL:-wss://gather.quiiven.com}
+      - VITE_API_BASE=${VITE_API_BASE:-http://localhost:2567}
     depends_on:
       - server
     restart: unless-stopped
@@ -43,8 +46,12 @@ services:
     environment:
       - SERVER_PORT=2567
       - SERVER_CORS_ORIGIN=${SERVER_CORS_ORIGIN:-https://gather.quiiven.com}
+    volumes:
+      # Tokens Google cifrados: sin esto cada redeploy desvincula todas las cuentas.
+      - server_data:/app/data
     restart: unless-stopped
 
 volumes:
   caddy_data:
   caddy_config:
+  server_data:
