@@ -1,6 +1,6 @@
 # Despliegue al ambiente de test (Lightsail 100.53.243.240).
 # Se ejecuta en el runner self-hosted instalado en esa máquina:
-# cada push a main valida (install/build/lint/test) y levanta docker compose.
+# cada push a master valida (install/build/lint/test) y levanta docker compose.
 # El ci.yml existente sigue validando todo push/PR en la nube (ubuntu-latest).
 name: deploy-test
 on:
@@ -19,7 +19,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.12.0
 
       - uses: actions/setup-node@v4
         with:
