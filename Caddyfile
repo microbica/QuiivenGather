@@ -1,0 +1,23 @@
+# gather.quiiven.com — proxy único con TLS automático (Let's Encrypt, HTTP-01 por :80).
+# - Web (React) en /
+# - Colyseus en la MISMA URL base: matchmaking/REST por path y sockets por header
+#   Upgrade. El cliente usa wss://gather.quiiven.com SIN subpath: cero cambios
+#   de protocolo (colyseus.js deriva /matchmaking y /<roomId> de esa base).
+#   TCP vs UDP: todo aquí es TCP (HTTP/WS). La media real (UDP/SRTP) llega en Fase 3.
+gather.quiiven.com {
+	@colyseus {
+		header Connection *Upgrade*
+	}
+	handle @colyseus {
+		reverse_proxy server:2567
+	}
+
+	@api path /matchmaking/* /health /auth/* /api/*
+	handle @api {
+		reverse_proxy server:2567
+	}
+
+	handle {
+		reverse_proxy web:5173
+	}
+}

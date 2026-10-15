@@ -1,19 +1,33 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - server
+    restart: unless-stopped
+
   web:
     build:
       context: .
       dockerfile: ./apps/web/Dockerfile
       args:
         # Vite los hornea en el build: sin esto el navegador usaría ws://localhost.
-        VITE_COLYSEUS_URL: ${VITE_COLYSEUS_URL:-ws://100.53.243.240:2567}
+        VITE_COLYSEUS_URL: ${VITE_COLYSEUS_URL:-wss://gather.quiiven.com}
         VITE_MAP_DEFAULT: ${VITE_MAP_DEFAULT:-/maps/demo.tmj}
         VITE_PROXIMITY_RADIUS_TILES: ${VITE_PROXIMITY_RADIUS_TILES:-5}
         VITE_AUTH_PROVIDER: ${VITE_AUTH_PROVIDER:-none}
     ports:
       - "5173:5173"
     environment:
-      # El navegador resuelve esto, no el container → IP test, no "server".
-      - VITE_COLYSEUS_URL=${VITE_COLYSEUS_URL:-ws://100.53.243.240:2567}
+      # El navegador resuelve esto, no el container → dominio, no "server".
+      - VITE_COLYSEUS_URL=${VITE_COLYSEUS_URL:-wss://gather.quiiven.com}
     depends_on:
       - server
     restart: unless-stopped
@@ -28,5 +42,9 @@ services:
       - .env
     environment:
       - SERVER_PORT=2567
-      - SERVER_CORS_ORIGIN=${SERVER_CORS_ORIGIN:-http://100.53.243.240:5173}
+      - SERVER_CORS_ORIGIN=${SERVER_CORS_ORIGIN:-https://gather.quiiven.com}
     restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
