@@ -5,7 +5,7 @@
 name: deploy-test
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 concurrency:
   group: deploy-test
