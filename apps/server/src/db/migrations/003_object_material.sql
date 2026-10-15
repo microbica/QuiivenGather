@@ -1,0 +1,1 @@
+ALTER TABLE objects ADD COLUMN material TEXT NOT NULL DEFAULT 'wood';

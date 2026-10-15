@@ -40,6 +40,14 @@ const gameServer = new Server({
 
 gameServer.define("game", GameRoom);
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandledRejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[server] uncaughtException:", err);
+  process.exit(1);
+});
+
 httpServer.listen(PORT, () => {
   console.log(`[server] Fase 0 listening on :${PORT} (cors: ${CORS_ORIGIN})`);
 });

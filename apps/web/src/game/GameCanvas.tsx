@@ -1,6 +1,6 @@
 import React from "react";
-import { Application, Container, Graphics, Text } from "pixi.js";
-import { CLIENT_SPEED, PLAYER_H, PLAYER_W } from "@quiiven/protocol";
+import { Application, Container, Graphics, Text, FederatedPointerEvent } from "pixi.js";
+import { CLIENT_SPEED, PLAYER_H, PLAYER_W, TILE } from "@quiiven/protocol";
 import {
   moveWithCollision,
   parseMap,
@@ -8,7 +8,8 @@ import {
   type GameMap,
 } from "./mapLoader";
 import { distancePx, isConnected } from "./proximity";
-import { nearestObject, resolveObjects, type SmartObject } from "./objects";
+import { nearestObject, type SmartObject } from "./objects";
+import { makeAvatarSprite, makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
 import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
 
@@ -38,6 +39,7 @@ interface Hud {
   zone: string;
   near: number;
   chunks: string;
+  zoom: number;
 }
 
 interface Remote {
@@ -72,6 +74,9 @@ function drawTile(g: Graphics, gid: number, px: number, py: number, t: number) {
   } else if (gid === 3) {
     g.roundRect(px + 1, py + 1, t - 2, t - 2, 4).fill({ color: MAP.rug, alpha: 0.9 });
     g.rect(px + 1, py + 1, t - 2, 3).fill({ color: MAP.rugTop, alpha: 0.9 });
+  } else {
+    // Any other tile keeps the team's procedural sprite.
+    drawTileSprite(g, px, py, t, gid);
   }
 }
 
@@ -111,29 +116,24 @@ function setLabel(label: Text, text: string) {
 }
 
 function makeAvatar(color: number, name: string): { c: Container; label: Text; nub: Graphics; ring: Graphics } {
-  const c = new Container();
-  const body = new Graphics();
-  body.roundRect(0, 0, BODY_W, BODY_H, 6).fill({ color });
-  body.circle(BODY_W / 2, 8, 5).fill({ color: 0xd7e6ff });
-  const nub = new Graphics();
-  const ring = new Graphics();
-  const label = new Text({
-    text: name,
-    style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 12, fontWeight: "500", fill: 0xffffff },
-    resolution: 2,
-  });
-  label.anchor.set(0.5, 1);
-  label.position.set(BODY_W / 2, -7);
-  // Carbon pill behind the name so it reads on the light floor.
+  const a = makeAvatarSprite(color, name);
+  // Brand label: Cera Pro on a Carbón pill so names read on the light floor.
+  a.label.style = { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 12, fontWeight: "500", fill: 0xffffff };
+  a.label.resolution = 2;
+  a.label.position.y = -7;
   const pill = new Graphics();
+  const cx = a.label.position.x;
   const fitPill = () => {
-    const w = label.width + 14;
-    pill.clear().roundRect(BODY_W / 2 - w / 2, -7 - label.height - 3, w, label.height + 6, 9).fill({ color: 0x2c2c33, alpha: 0.88 });
+    const w = a.label.width + 14;
+    pill.clear().roundRect(cx - w / 2, -7 - a.label.height - 3, w, a.label.height + 6, 9).fill({ color: 0x2c2c33, alpha: 0.88 });
   };
+  a.c.addChildAt(pill, a.c.getChildIndex(a.label));
   fitPill();
-  pillFitters.set(label, fitPill);
-  c.addChild(body, nub, ring, pill, label);
-  return { c, label, nub, ring };
+  // Re-measure once the frame renders and again when Cera Pro finishes loading.
+  requestAnimationFrame(fitPill);
+  void document.fonts?.ready.then(fitPill);
+  pillFitters.set(a.label, fitPill);
+  return a;
 }
 
 function paintRing(ring: Graphics, connected: boolean) {
@@ -143,7 +143,20 @@ function paintRing(ring: Graphics, connected: boolean) {
     .stroke({ color: connected ? 0x18d3b8 : 0x2c2c33, width: 2, alpha: connected ? 1 : 0 });
 }
 
-export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: string; net: NetHandle; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
+interface ObjMarker {
+  c: Container;
+  id: string;
+  label: Text;
+  baseX: number;
+  baseY: number;
+  /** Rotación actual del objeto (deg, múltiplos de 30). */
+  baseR: number;
+  rotated: boolean;
+  w: number;
+  h: number;
+}
+
+export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   const nameRef = React.useRef(name);
   nameRef.current = name;
@@ -153,8 +166,18 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
   onObjectRef.current = onObject;
   const audioRef = React.useRef(audio);
   audioRef.current = audio;
+  const objectsRef = React.useRef(objects);
+  objectsRef.current = objects;
+  const isAdminRef = React.useRef(isAdmin);
+  isAdminRef.current = isAdmin;
+  const adminModeRef = React.useRef(adminMode);
+  adminModeRef.current = adminMode;
+  const rebuildRef = React.useRef<() => void>(() => undefined);
+  React.useEffect(() => {
+    rebuildRef.current();
+  }, [objects, isAdmin, adminMode]);
   const [hud, setHud] = React.useState<Hud>({
-    fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", near: 0, chunks: "—",
+    fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", near: 0, chunks: "—", zoom: 1,
   });
   const debug = React.useMemo(
     () => new URLSearchParams(window.location.search).has("debug"),
@@ -190,10 +213,6 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       const res = await fetch(mapUrl);
       if (!res.ok) throw new Error(`map fetch failed: ${mapUrl}`);
       const map = parseMap(await res.json());
-      const objects = resolveObjects(
-        await fetch(`${import.meta.env.BASE_URL}objects.json`).then((r) => (r.ok ? r.json() : [])),
-        import.meta.env.VITE_MEET_URL ?? "",
-      );
       if (cancelled) return;
 
       app = new Application();
@@ -206,6 +225,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       mountRef.current!.appendChild(app.canvas);
 
       const world = new Container();
+      app.stage.eventMode = "static";
       app.stage.addChild(world);
 
       const groundC = new Container();
@@ -219,21 +239,140 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       const roofChunks = buildLayer(map, map.roof, roofC);
       const allChunks = [...groundChunks, ...wallChunks, ...roofChunks];
 
-      // Smart Object markers (amber) so they are discoverable on the map.
-      for (const o of objects) {
-        const m = new Graphics();
-        m.roundRect(o.x, o.y, o.w, o.h, 6)
-          .fill({ color: 0xffae00, alpha: 0.12 })
-          .stroke({ color: MAP.object, width: 2 });
-        const t = new Text({
-          text: `✦ ${o.label}`,
-          style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 11, fontWeight: "700", fill: 0x2c2c33 },
-          resolution: 2,
-        });
-        t.position.set(o.x + 2, o.y - 16);
-        m.addChild(t);
-        objectC.addChild(m);
-      }
+      const objMarkers = new Map<string, ObjMarker>();
+      let dragState: { id: string; offsetX: number; offsetY: number } | null = null;
+      // Pendiente: pointerdown sin drag todavía. Si se mueve más allá del
+      // umbral, se promueve a dragState (mover). Si suelta sin moverse → click (rotar).
+      let pendingDrag: {
+        id: string;
+        offsetX: number;
+        offsetY: number;
+        downX: number;
+        downY: number;
+        moved: boolean;
+      } | null = null;
+      const DRAG_THRESHOLD = 5; // px en pantalla
+
+      const rebuildMarkers = () => {
+        const objs = objectsRef.current;
+        const mode = adminModeRef.current;
+        for (const [, m] of objMarkers) {
+          objectC.removeChild(m.c);
+          m.c.destroy({ children: true });
+        }
+        objMarkers.clear();
+        for (const o of objs) {
+          const c = new Container();
+          c.eventMode = mode ? "static" : "none";
+          c.position.set(o.x, o.y);
+          const rotation = ((o.rotation ?? 0) % 360 + 360) % 360;
+          if (rotation !== 0) {
+            // Rotar el sprite alrededor de su centro (que ahora está en o.w/2, o.h/2).
+            c.pivot.set(o.w / 2, o.h / 2);
+            c.position.set(o.x + o.w / 2, o.y + o.h / 2);
+            c.rotation = (rotation * Math.PI) / 180;
+          }
+          const sprite = makeObjectSprite(o.kind, o.w, o.h, o.material);
+          c.addChild(sprite);
+          const label = new Text({
+            text: `${o.label}${mode ? " ✋" : ""}`,
+            style: {
+              fontSize: 11,
+              fill: 0xffffff,
+              fontFamily: "system-ui, sans-serif",
+              stroke: { color: 0x000000, width: 3 },
+            },
+          });
+          label.anchor.set(0.5, 1);
+          // El label sigue al lado "arriba" del bounding box rotado.
+          const labelOffset = rotation === 90 || rotation === 270 ? o.h / 2 : o.w / 2;
+          label.position.set(labelOffset, -6);
+          c.addChild(label);
+          if (mode) {
+            c.cursor = "grab";
+            c.on("pointerdown", (e: FederatedPointerEvent) => {
+              // Click derecho = borrar (Fase 6 admin)
+              if (e.button === 2) {
+                net.sendObjRemove(o.id);
+                return;
+              }
+              if (e.button !== 0) return;
+              // Pendiente de drag: si el mouse se mueve más allá del umbral,
+              // se convierte en drag (mover). Si suelta sin moverse, es click → rotar.
+              const worldX = e.global.x + cam.x;
+              const worldY = e.global.y + cam.y;
+              pendingDrag = {
+                id: o.id,
+                offsetX: worldX - o.x,
+                offsetY: worldY - o.y,
+                downX: e.global.x,
+                downY: e.global.y,
+                moved: false,
+              };
+              c.cursor = "grabbing";
+            });
+          }
+          objectC.addChild(c);
+          objMarkers.set(o.id, { c, id: o.id, label, baseX: o.x, baseY: o.y, baseR: rotation, rotated: rotation !== 0, w: o.w, h: o.h });
+        }
+      };
+      rebuildRef.current = rebuildMarkers;
+      rebuildMarkers();
+
+      app.stage.on("pointermove", (e: FederatedPointerEvent) => {
+        if (!adminModeRef.current) return;
+        // Promover pendingDrag → dragState si supera el umbral.
+        if (pendingDrag && !pendingDrag.moved) {
+          const dx = e.global.x - pendingDrag.downX;
+          const dy = e.global.y - pendingDrag.downY;
+          if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
+            pendingDrag.moved = true;
+            dragState = {
+              id: pendingDrag.id,
+              offsetX: pendingDrag.offsetX,
+              offsetY: pendingDrag.offsetY,
+            };
+          }
+        }
+        if (!dragState) return;
+        const m = objMarkers.get(dragState.id);
+        if (!m) return;
+        const worldX = e.global.x + cam.x;
+        const worldY = e.global.y + cam.y;
+        // Snap a grid (TILE=32) para que cada objeto caiga en un cuadrito.
+        const nx = Math.round((worldX - dragState.offsetX) / TILE) * TILE;
+        const ny = Math.round((worldY - dragState.offsetY) / TILE) * TILE;
+        // Si el sprite está rotado, el container.position es el centro (no top-left).
+        m.c.position.set(
+          m.rotated ? nx + m.w / 2 : nx,
+          m.rotated ? ny + m.h / 2 : ny,
+        );
+        m.baseX = nx;
+        m.baseY = ny;
+        const live = objectsRef.current.find((x) => x.id === m.id);
+        if (live) { live.x = nx; live.y = ny; }
+      });
+
+      app.stage.on("pointerup", () => {
+        if (dragState && adminModeRef.current) {
+          // Era un drag → enviar posición final.
+          const m = objMarkers.get(dragState.id);
+          if (m) net.sendObjMove(m.id, m.baseX, m.baseY);
+        } else if (pendingDrag && adminModeRef.current) {
+          // Era un click simple (no drag) → rotar +30°.
+          // Cubre los 360° en 12 clicks.
+          const m = objMarkers.get(pendingDrag.id);
+          if (m) {
+            const cur = m.baseR ?? 0;
+            const next = ((Math.round(cur / 30) * 30) % 360 + 360) % 360;
+            const r = next === 0 ? 30 : next;
+            net.sendObjRotate(pendingDrag.id, r);
+          }
+        }
+        dragState = null;
+        pendingDrag = null;
+        for (const [, mk] of objMarkers) mk.c.cursor = "grab";
+      });
 
       const local = makeAvatar(0x4f8ff7, nameRef.current);
       avatarC.addChild(local.c);
@@ -260,8 +399,33 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
         y: map.spawn.y - BODY_H / 2,
       };
       const cam = { x: 0, y: 0 };
+      let zoom = 1;
       const remotes = new Map<string, Remote>();
       const radiusPx = Number(import.meta.env.VITE_PROXIMITY_RADIUS_TILES ?? 5) * map.tile;
+
+      // Zoom con rueda del ratón (hacia el cursor).
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        // World point bajo el cursor antes del zoom.
+        const wx = (mx - world.position.x) / zoom;
+        const wy = (my - world.position.y) / zoom;
+        const factor = Math.pow(0.92, e.deltaY / 100);
+        const newZoom = Math.min(2.5, Math.max(0.25, zoom * factor));
+        // Ajustar cam para que (wx, wy) quede bajo el cursor tras el zoom.
+        cam.x = wx - mx / newZoom;
+        cam.y = wy - my / newZoom;
+        zoom = newZoom;
+        world.scale.set(zoom, zoom);
+      };
+      const canvas = app.canvas;
+      canvas.addEventListener("wheel", onWheel, { passive: false });
+      canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+      disposers.push(() => {
+        canvas.removeEventListener("wheel", onWheel);
+      });
       let dir = "down";
       let anim: string = "idle";
       let lastHud = 0;
@@ -295,12 +459,28 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
         const moving = vx !== 0 || vy !== 0;
         if (moving) {
           const len = Math.hypot(vx, vy);
+          // Colisión: estáticas del mapa + muros dinámicos (admin-added).
+          // Ventanas y puertas NO bloquean movimiento.
+          // AABB de un rectángulo rotado: w' = w·|cos θ| + h·|sin θ|,
+          // h' = w·|sin θ| + h·|cos θ|. Funciona para cualquier ángulo.
+          const dynamicWalls = objectsRef.current
+            .filter((o) => o.kind === "wall")
+            .map((o) => {
+              const rad = ((o.rotation ?? 0) * Math.PI) / 180;
+              const c = Math.abs(Math.cos(rad));
+              const s = Math.abs(Math.sin(rad));
+              const bw = o.w * c + o.h * s;
+              const bh = o.w * s + o.h * c;
+              const cx = o.x + o.w / 2;
+              const cy = o.y + o.h / 2;
+              return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+            });
           const next = moveWithCollision(
             pos,
             (vx / len) * SPEED * dt,
             (vy / len) * SPEED * dt,
             { w: BODY_W, h: BODY_H },
-            map.collisions,
+            [...map.collisions, ...dynamicWalls],
             { w: map.widthPx, h: map.heightPx },
           );
           pos.x = next.x;
@@ -367,12 +547,12 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
               r.cx + BODY_W / 2 - cx0,
               r.cy + BODY_H / 2 - cy0,
             );
-            // Avatar culling: hide remotes far outside viewport + radius.
+            // Avatar culling: hide remotes far outside viewport + radius (mundo).
             r.c.visible =
               r.cx + BODY_W > cam.x - radiusPx &&
-              r.cx < cam.x + viewW + radiusPx &&
+              r.cx < cam.x + viewWz + radiusPx &&
               r.cy + BODY_H > cam.y - radiusPx &&
-              r.cy < cam.y + viewH + radiusPx;
+              r.cy < cam.y + viewHz + radiusPx;
           });
           for (const [id, r] of remotes) {
             if (!room.state.players.get(id)) {
@@ -384,22 +564,24 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
           }
         }
 
-        // Follow camera with smoothing + clamp.
+        // Follow camera with smoothing + clamp (en coords mundo, considerando zoom).
         const cx = pos.x + BODY_W / 2;
         const cy = pos.y + BODY_H / 2;
-        const tx = Math.min(Math.max(cx - viewW / 2, 0), Math.max(0, map.widthPx - viewW));
-        const ty = Math.min(Math.max(cy - viewH / 2, 0), Math.max(0, map.heightPx - viewH));
+        const viewWz = viewW / zoom;
+        const viewHz = viewH / zoom;
+        const tx = Math.min(Math.max(cx - viewWz / 2, 0), Math.max(0, map.widthPx - viewWz));
+        const ty = Math.min(Math.max(cy - viewHz / 2, 0), Math.max(0, map.heightPx - viewHz));
         const k = Math.min(1, dt * 8);
         cam.x += (tx - cam.x) * k;
         cam.y += (ty - cam.y) * k;
-        world.position.set(-Math.round(cam.x), -Math.round(cam.y));
+        world.position.set(-Math.round(cam.x * zoom), -Math.round(cam.y * zoom));
 
-        // Frustum culling: chunks vs viewport AABB.
+        // Frustum culling: chunks vs viewport AABB (mundo).
         let visible = 0;
         for (const c of allChunks) {
           const b = c.bounds;
           const inView =
-            b.x < cam.x + viewW && b.x + b.w > cam.x && b.y < cam.y + viewH && b.y + b.h > cam.y;
+            b.x < cam.x + viewWz && b.x + b.w > cam.x && b.y < cam.y + viewHz && b.y + b.h > cam.y;
           c.gfx.visible = inView;
           if (inView) visible++;
         }
@@ -408,7 +590,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
           lastHud = now;
           audioRef.current?.setRadius(radiusPx);
           // Smart Object enter/leave (Fase 4).
-          const near = nearestObject({ x: cx, y: cy }, objects);
+          const near = nearestObject({ x: cx, y: cy }, objectsRef.current);
           const nearId = near?.id ?? null;
           if (nearId !== lastObjectId) {
             lastObjectId = nearId;
@@ -430,6 +612,7 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
             zone: z ? `${z.label} (${z.kind})` : "—",
             near: lastNearCount,
             chunks: `${visible}/${allChunks.length}`,
+            zoom,
           });
         }
       });
@@ -456,7 +639,12 @@ export function GameCanvas({ name, net, onNearby, onObject, audio }: { name: str
       </div>
       {debug && (
         <div className="q-debug">
-          {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · cerca: {hud.near} · chunks: {hud.chunks}
+          {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · cerca: {hud.near} · chunks: {hud.chunks} · zoom {hud.zoom.toFixed(2)}×
+        </div>
+      )}
+      {adminMode && (
+        <div className="q-panel q-small" style={{ position: "absolute", top: 76, left: 16, zIndex: 10, pointerEvents: "none", padding: "8px 14px" }}>
+          <strong>Modo edición:</strong> clic rota +30° · arrastra para mover · clic derecho borra
         </div>
       )}
     </div>

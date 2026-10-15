@@ -1,21 +1,25 @@
 // Smart Objects registry + proximity detection (Fase 4, pure, tested).
 // An object activates when the avatar center is within `radius` px of its rect.
 
-export type SmartKind = "meet" | "board" | "generic";
+export type SmartKind = "meet" | "board" | "generic" | "wall" | "window" | "door";
+export type Material = "wood" | "metal" | "glass" | "stone";
 
 export interface SmartObject {
   id: string;
   label: string;
   kind: SmartKind;
+  material: Material;
   x: number;
   y: number;
   w: number;
   h: number;
   radius: number;
   url: string;
+  rotation: number;
 }
 
-const KINDS: SmartKind[] = ["meet", "board", "generic"];
+const KINDS: SmartKind[] = ["meet", "board", "generic", "wall", "window", "door"];
+const MATERIALS: Material[] = ["wood", "metal", "glass", "stone"];
 
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
@@ -38,18 +42,23 @@ export function resolveObjects(raw: unknown, meetUrl: string): SmartObject[] {
     const kind: SmartKind = KINDS.includes(r.kind as SmartKind)
       ? (r.kind as SmartKind)
       : "generic";
+    const material: Material = MATERIALS.includes(r.material as Material)
+      ? (r.material as Material)
+      : "wood";
     const id = str(r.id).trim();
     if (!id) continue;
     out.push({
       id,
       label: str(r.label, id),
       kind,
+      material,
       x: num(r.x),
       y: num(r.y),
       w: Math.max(8, num(r.w, 32)),
       h: Math.max(8, num(r.h, 32)),
       radius: Math.max(16, num(r.radius, 96)),
       url: kind === "meet" && meetUrl ? meetUrl : str(r.url),
+      rotation: 0,
     });
   }
   return out;

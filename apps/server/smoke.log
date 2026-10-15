@@ -1,0 +1,7 @@
+﻿ok: join/spawn broadcast
+ok: move broadcast
+ok: zone broadcast
+ok: anti-teleport (dist=22px)
+ok: chat global
+ok: rtc relay
+SMOKE PASS

@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { Room, Client } from "colyseus";
 import {
   CHAT_HISTORY,
   GameState,
   Player,
   ChatMessage,
+  GameObject,
   SPAWN,
 } from "@quiiven/protocol";
 import {
@@ -13,6 +15,9 @@ import {
   sanitizeZone,
   validAnim,
   validDir,
+  validKind,
+  validMaterial,
+  validRotation,
   validSignal,
 } from "../net/validate.js";
 import {
@@ -23,6 +28,13 @@ import {
 } from "../auth/sessions.js";
 import { validMeetUrl as validMeet, isEmailAllowed } from "../auth/google.js";
 import { getTokens } from "../auth/store.js";
+import {
+  deleteObject,
+  getRole,
+  initDb,
+  listObjects,
+  upsertObject,
+} from "../db.js";
 
 interface MoveMsg {
   x?: unknown;
@@ -47,6 +59,34 @@ interface MeetMsg {
   url?: unknown;
 }
 
+interface ObjMoveMsg {
+  id?: unknown;
+  x?: unknown;
+  y?: unknown;
+}
+
+interface ObjAddMsg {
+  label?: unknown;
+  kind?: unknown;
+  material?: unknown;
+  x?: unknown;
+  y?: unknown;
+  w?: unknown;
+  h?: unknown;
+  radius?: unknown;
+  url?: unknown;
+  rotation?: unknown;
+}
+
+interface ObjRemoveMsg {
+  id?: unknown;
+}
+
+interface ObjRotateMsg {
+  id?: unknown;
+  rotation?: unknown;
+}
+
 /** Fase 2: servidor autoritativo. Valida movimiento (anti-teleport) y chat. */
 export class GameRoom extends Room<GameState> {
   maxClients = 50;
@@ -55,6 +95,7 @@ export class GameRoom extends Room<GameState> {
   onCreate() {
     this.setState(new GameState());
     this.setPatchRate(Number(process.env.GAME_PATCH_RATE ?? 50));
+    this.loadObjects();
     this.onMessage("ping", (client) => {
       client.send("pong", { t: Date.now() });
     });
@@ -73,6 +114,38 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("set-meet", (client, msg: MeetMsg) =>
       this.handleSetMeet(client, msg),
     );
+    // Fase 6: admin puede mover, duplicar y borrar objetos del mapa.
+    this.onMessage("obj-move", (client, msg: ObjMoveMsg) =>
+      this.handleObjMove(client, msg),
+    );
+    this.onMessage("obj-add", (client, msg: ObjAddMsg) =>
+      this.handleObjAdd(client, msg),
+    );
+    this.onMessage("obj-remove", (client, msg: ObjRemoveMsg) =>
+      this.handleObjRemove(client, msg),
+    );
+    this.onMessage("obj-rotate", (client, msg: ObjRotateMsg) =>
+      this.handleObjRotate(client, msg),
+    );
+  }
+
+  private loadObjects(): void {
+    initDb();
+    for (const o of listObjects()) {
+      const g = new GameObject();
+      g.id = o.id;
+      g.label = o.label;
+      g.kind = validKind(o.kind);
+      g.material = validMaterial(o.material);
+      g.x = o.x;
+      g.y = o.y;
+      g.w = o.w;
+      g.h = o.h;
+      g.radius = o.radius;
+      g.url = o.url;
+      g.rotation = validRotation(o.rotation);
+      this.state.objects.set(o.id, g);
+    }
   }
 
   // Login del juego: requiere cookie de sesión Google Y dominio permitido.
@@ -83,17 +156,22 @@ export class GameRoom extends Room<GameState> {
     if (sub) {
       const stored = getTokens(sub);
       if (stored && isEmailAllowed(stored.email)) {
-        return { googleSub: sub, name: stored.name, email: stored.email };
+        return {
+          googleSub: sub,
+          name: stored.name,
+          email: stored.email,
+          role: getRole(stored.email),
+        };
       }
     }
     if (process.env.NODE_ENV === "production") return null;
-    return { googleSub: null, name: undefined };
+    return { googleSub: null, name: undefined, role: "user" };
   }
 
   onJoin(
     client: Client,
     options: { name?: string } = {},
-    auth: { googleSub?: string | null; name?: string } = {},
+    auth: { googleSub?: string | null; name?: string; role?: string } = {},
   ) {
     const p = new Player();
     // Nombre autoritativo del perfil de Google; fallback a lo que envíe el cliente.
@@ -158,6 +236,109 @@ export class GameRoom extends Room<GameState> {
     this.state.meetUrl = url;
   }
 
+  private isAdmin(client: Client): boolean {
+    const sub = linkedSubLookup(client.sessionId);
+    if (!sub) return false;
+    const stored = getTokens(sub);
+    if (!stored) return false;
+    return getRole(stored.email) === "admin";
+  }
+
+  private handleObjMove(client: Client, msg: ObjMoveMsg) {
+    if (!this.isAdmin(client)) return;
+    const id = typeof msg.id === "string" ? msg.id : "";
+    const g = this.state.objects.get(id);
+    if (!g) return;
+    const x = Number(msg.x);
+    const y = Number(msg.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    g.x = Math.round(x);
+    g.y = Math.round(y);
+    upsertObject({
+      id: g.id,
+      label: g.label,
+      kind: g.kind,
+      material: g.material,
+      x: g.x,
+      y: g.y,
+      w: g.w,
+      h: g.h,
+      radius: g.radius,
+      url: g.url,
+      rotation: g.rotation,
+    });
+  }
+
+  private handleObjAdd(client: Client, msg: ObjAddMsg) {
+    if (!this.isAdmin(client)) return;
+    const label =
+      typeof msg.label === "string" && msg.label.trim()
+        ? msg.label.trim().slice(0, 60)
+        : "Objeto";
+    const kind = validKind(msg.kind);
+    const material = validMaterial(msg.material);
+    const w = clampDim(msg.w, 16, 512);
+    const h = clampDim(msg.h, 16, 512);
+    const radius = clampDim(msg.radius, 0, 512);
+    const url = typeof msg.url === "string" ? msg.url.trim().slice(0, 300) : "";
+    const rotation = validRotation(msg.rotation);
+    const g = new GameObject();
+    g.id = `obj-${randomBytes(6).toString("hex")}`;
+    g.label = label;
+    g.kind = kind;
+    g.material = material;
+    g.x = Math.round(Number(msg.x) || 0);
+    g.y = Math.round(Number(msg.y) || 0);
+    g.w = w;
+    g.h = h;
+    g.radius = radius;
+    g.url = url;
+    g.rotation = rotation;
+    this.state.objects.set(g.id, g);
+    upsertObject({
+      id: g.id,
+      label: g.label,
+      kind: g.kind,
+      material: g.material,
+      x: g.x,
+      y: g.y,
+      w: g.w,
+      h: g.h,
+      radius: g.radius,
+      url: g.url,
+      rotation: g.rotation,
+    });
+  }
+
+  private handleObjRotate(client: Client, msg: ObjRotateMsg) {
+    if (!this.isAdmin(client)) return;
+    const id = typeof msg.id === "string" ? msg.id : "";
+    const g = this.state.objects.get(id);
+    if (!g) return;
+    g.rotation = validRotation(msg.rotation);
+    upsertObject({
+      id: g.id,
+      label: g.label,
+      kind: g.kind,
+      material: g.material,
+      x: g.x,
+      y: g.y,
+      w: g.w,
+      h: g.h,
+      radius: g.radius,
+      url: g.url,
+      rotation: g.rotation,
+    });
+  }
+
+  private handleObjRemove(client: Client, msg: ObjRemoveMsg) {
+    if (!this.isAdmin(client)) return;
+    const id = typeof msg.id === "string" ? msg.id : "";
+    if (!this.state.objects.has(id)) return;
+    this.state.objects.delete(id);
+    deleteObject(id);
+  }
+
   private handleChat(client: Client, msg: ChatMsg) {
     const p = this.state.players.get(client.sessionId);
     if (!p) return;
@@ -172,4 +353,10 @@ export class GameRoom extends Room<GameState> {
       this.state.messages.shift();
     }
   }
+}
+
+function clampDim(v: unknown, min: number, max: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 64;
+  return Math.round(Math.min(max, Math.max(min, n)));
 }

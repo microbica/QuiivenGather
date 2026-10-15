@@ -19,5 +19,7 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
-# Local data (encrypted Google tokens)
+# Local data (encrypted Google tokens + sqlite)
 data/
+*.db
+*.db-journal

@@ -10,21 +10,19 @@ import {
   sessionSub,
   unlinkColyseus,
 } from "./sessions.js";
-import { saveTokens, getTokens, deleteTokens } from "./store.js";
+import { saveTokens, getTokens, deleteTokens, setTestTokenFile } from "./store.js";
 
-// store.ts writes to <cwd>/data; isolate it for the test.
 let dir: string;
-const prev = process.cwd();
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "gq-token-"));
-  process.chdir(dir);
+  setTestTokenFile(join(dir, "google-tokens.json"));
   process.env.GOOGLE_TOKEN_KEY =
     "a".repeat(32) + "b".repeat(32); // 64 hex chars
 });
 
 afterAll(() => {
-  process.chdir(prev);
+  setTestTokenFile("");
   rmSync(dir, { recursive: true, force: true });
 });
 

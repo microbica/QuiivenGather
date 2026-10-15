@@ -10,12 +10,14 @@ const tv = {
   id: "tv",
   label: "TV",
   kind: "meet",
+  material: "wood",
   x: 100,
   y: 100,
   w: 64,
   h: 40,
   radius: 96,
   url: "",
+  rotation: 0,
 } as const;
 
 describe("objects", () => {
