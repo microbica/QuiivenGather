@@ -717,11 +717,6 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · cerca: {hud.near} · chunks: {hud.chunks} · zoom {hud.zoom.toFixed(2)}×
         </div>
       )}
-      {adminMode && (
-        <div className="q-panel q-small" style={{ position: "absolute", top: 76, left: 16, zIndex: 10, pointerEvents: "none", padding: "8px 14px" }}>
-          <strong>Modo edición:</strong> clic rota +30° · arrastra para mover · clic derecho borra
-        </div>
-      )}
     </div>
   );
 }

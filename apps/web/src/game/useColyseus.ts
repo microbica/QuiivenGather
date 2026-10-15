@@ -46,7 +46,10 @@ export interface NetHandle {
   sendObjRotate(id: string, rotation: number): void;
 }
 
-export type NetStatus = "connecting" | "online" | "offline";
+export type NetStatus = "connecting" | "online" | "offline" | "demo";
+
+/** Design preview: no server; objects load from public JSON and edits stay local. */
+const DEMO = import.meta.env.VITE_DEMO === "1";
 
 const URL = import.meta.env.VITE_COLYSEUS_URL ?? "ws://localhost:2567";
 
@@ -62,17 +65,47 @@ export function useColyseusRoom(name: string) {
   const [messages, setMessages] = React.useState<ChatEntry[]>([]);
   const [meetUrl, setMeetUrl] = React.useState<string>("");
   const [objects, setObjects] = React.useState<SmartObject[]>([]);
-  const [net] = React.useState<NetHandle>(() => ({
-    getRoom: () => roomRef.current,
-    sessionId: null,
-    sendMove: (m) => roomRef.current?.send("move", m),
-    sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
-    sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
-    sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
-      roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url, material, rotation }),
-    sendObjRemove: (id) => roomRef.current?.send("obj-remove", { id }),
-    sendObjRotate: (id, rotation) => roomRef.current?.send("obj-rotate", { id, rotation }),
-  }));
+  const [net] = React.useState<NetHandle>(() =>
+    DEMO
+      ? {
+          getRoom: () => null,
+          sessionId: null,
+          sendMove: () => undefined,
+          sendSetMeet: (url) => setMeetUrl(url),
+          sendObjMove: (id, x, y) => setObjects((list) => list.map((o) => (o.id === id ? { ...o, x, y } : o))),
+          sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
+            setObjects((list) => [
+              ...list,
+              {
+                id: `demo-${Date.now().toString(36)}`,
+                label,
+                kind: kind as SmartObject["kind"],
+                material: (material ?? "wood") as SmartObject["material"],
+                x,
+                y,
+                w: w ?? 32,
+                h: h ?? 32,
+                radius: radius ?? 0,
+                url: url ?? "",
+                rotation: rotation ?? 0,
+              },
+            ]),
+          sendObjRemove: (id) => setObjects((list) => list.filter((o) => o.id !== id)),
+          sendObjRotate: (id, rotation) =>
+            setObjects((list) => list.map((o) => (o.id === id ? { ...o, rotation } : o))),
+        }
+      : {
+          getRoom: () => roomRef.current,
+          sessionId: null,
+          sendMove: (m) => roomRef.current?.send("move", m),
+          sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
+          sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
+          sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
+            roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url, material, rotation }),
+          sendObjRemove: (id) => roomRef.current?.send("obj-remove", { id }),
+          sendObjRotate: (id, rotation) => roomRef.current?.send("obj-rotate", { id, rotation }),
+        },
+  );
 
   const syncObjects = React.useCallback((room: Room<GameState> | null) => {
     if (!room) return;
@@ -121,6 +154,31 @@ export function useColyseusRoom(name: string) {
   }, []);
 
   React.useEffect(() => {
+    if (!DEMO) return;
+    let cancelled = false;
+    setStatus("demo");
+    setRoster([{ id: "self", name, self: true }]);
+    const base = import.meta.env.BASE_URL;
+    Promise.all(
+      ["objects.json", "walls.json"].map((f) =>
+        fetch(`${base}${f}`).then((r) => (r.ok ? r.json() : [])).catch(() => []),
+      ),
+    ).then(([objs, walls]) => {
+      if (cancelled) return;
+      const list = [...(objs as SmartObject[]), ...(walls as SmartObject[])].map((o) => ({
+        ...o,
+        material: o.material ?? "wood",
+        rotation: o.rotation ?? 0,
+      }));
+      setObjects(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [name]);
+
+  React.useEffect(() => {
+    if (DEMO) return;
     let cancelled = false;
     let room: Room<GameState> | null = null;
     setStatus("connecting");
@@ -168,9 +226,16 @@ export function useColyseusRoom(name: string) {
     };
   }, [name, net]);
 
-  const sendChat = React.useCallback((text: string) => {
-    roomRef.current?.send("chat", { text });
-  }, []);
+  const sendChat = React.useCallback(
+    (text: string) => {
+      if (DEMO) {
+        setMessages((prev) => [...prev.slice(-49), { name, text, ts: Date.now() }]);
+        return;
+      }
+      roomRef.current?.send("chat", { text });
+    },
+    [name],
+  );
 
   return { status, roster, messages, sendChat, net, meetUrl, objects };
 }

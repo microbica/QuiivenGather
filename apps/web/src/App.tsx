@@ -143,7 +143,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   return (
     <div style={{ position: "relative", height: "100%" }}>
       <aside className="q-rail">
-        <GooglePanel net={net} onEvents={setCalendarMeets} adminMode={adminMode} onAdminModeChange={setAdminMode} />
+        <GooglePanel net={net} onEvents={setCalendarMeets} />
         <Sidebar
         status={status}
         roster={roster}
@@ -170,7 +170,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         onToggleAudio={voice.toggleAudio}
         onToggleVideo={voice.toggleVideo}
       />
-      {isAdmin && <AdminPanel net={net} objects={objects} />}
+      {isAdmin && <AdminPanel net={net} objects={objects} editing={adminMode} onEditingChange={setAdminMode} />}
       <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
       {profileOpen && (
         <ProfilePanel
@@ -205,7 +205,7 @@ export function App() {
 
   if (DEMO) {
     return demoIn ? (
-      <GameApp name="Invitado Demo" isAdmin={false} />
+      <GameApp name="Invitado Demo" isAdmin />
     ) : (
       <LoginGate onAuthorized={() => undefined} onDemoLogin={() => setDemoIn(true)} />
     );

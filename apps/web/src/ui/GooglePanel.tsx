@@ -14,12 +14,9 @@ interface Props {
   net: NetHandle;
   /** Reporta los eventos del calendario para que la TV los ofrezca. */
   onEvents?: (events: CalendarEvent[]) => void;
-  /** Admin local toggle: true = modo edición (arrastrar objetos), false = modo normal. */
-  adminMode?: boolean;
-  onAdminModeChange?: (enabled: boolean) => void;
 }
 
-export function GooglePanel({ net, onEvents, adminMode = false, onAdminModeChange }: Props) {
+export function GooglePanel({ net, onEvents }: Props) {
   const [status, setStatus] = React.useState<GoogleStatus | null>(null);
   const [events, setEvents] = React.useState<CalendarEvent[]>([]);
   const [busy, setBusy] = React.useState(false);
@@ -43,7 +40,8 @@ export function GooglePanel({ net, onEvents, adminMode = false, onAdminModeChang
       if (s.linked) setBoth(await getEvents());
       else setBoth([]);
     } catch {
-      /* ignore */
+      // Server unreachable (or design preview): show the "connect" state instead of loading forever.
+      setStatus({ linked: false, configured: false, authorized: false, role: "user" });
     }
   }, [setBoth]);
 
@@ -126,18 +124,6 @@ export function GooglePanel({ net, onEvents, adminMode = false, onAdminModeChang
             {status.email}
             {status.role === "admin" && <span className="q-chip">Admin</span>}
           </p>
-          {status.role === "admin" && (
-            <label className="q-small" style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 10px", cursor: "pointer" }}>
-              <input
-                id="admin-mode"
-                type="checkbox"
-                checked={adminMode}
-                onChange={(e) => onAdminModeChange?.(e.target.checked)}
-                style={{ accentColor: "var(--q-carbon)" }}
-              />
-              Modo edición (arrastrar objetos)
-            </label>
-          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {events.length === 0 && <span className="q-small q-muted">Sin reuniones próximas.</span>}
             {events.map((e) => (

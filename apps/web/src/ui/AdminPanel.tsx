@@ -5,6 +5,9 @@ import type { Material, SmartObject } from "../game/objects";
 interface Props {
   net: NetHandle;
   objects: SmartObject[];
+  /** Edit mode: drag to move, click to rotate, right click to delete. */
+  editing: boolean;
+  onEditingChange: (on: boolean) => void;
 }
 
 type BuildKind = "wall" | "window" | "door";
@@ -27,7 +30,8 @@ const MATERIALS: { value: Material; label: string }[] = [
  * Permite duplicar, borrar, y construir muros/ventanas/puertas con material.
  * El movimiento es por arrastre directo en el canvas.
  */
-export function AdminPanel({ net, objects }: Props) {
+export function AdminPanel({ net, objects, editing, onEditingChange }: Props) {
+  const [open, setOpen] = React.useState(true);
   const [msg, setMsg] = React.useState("");
   const [buildKind, setBuildKind] = React.useState<BuildKind>("wall");
   const [material, setMaterial] = React.useState<Material>("wood");
@@ -79,128 +83,102 @@ export function AdminPanel({ net, objects }: Props) {
     setTimeout(() => setMsg(""), 2000);
   };
 
+  const kindLabel: Record<string, string> = {
+    meet: "TV",
+    board: "Pizarra",
+    generic: "Objeto",
+    wall: "Muro",
+    window: "Ventana",
+    door: "Puerta",
+  };
+  const materialLabel = (m: Material) => MATERIALS.find((x) => x.value === m)?.label ?? m;
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 12,
-        right: 12,
-        width: 280,
-        maxHeight: "60vh",
-        overflowY: "auto",
-        background: "rgba(20,24,40,0.94)",
-        color: "#eee",
-        borderRadius: 10,
-        padding: 10,
-        zIndex: 30,
-        fontFamily: "system-ui, sans-serif",
-        fontSize: 12,
-      }}
-    >
-      <h4 style={{ margin: "0 0 8px", color: "#f2c14a" }}>Admin · Objetos</h4>
+    <section className="q-panel q-admin" aria-label="Administración del mapa">
+      <h3 className="q-eyebrow">
+        <span>Admin · Mapa</span>
+        <button type="button" className="q-btn q-btn--ghost q-btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          {open ? "Ocultar" : "Mostrar"}
+        </button>
+      </h3>
 
-      <h5 style={{ margin: "8px 0 4px", color: "#9cc8ff" }}>Construir</h5>
-      <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
-        {BUILD_KINDS.map((b) => (
-          <button
-            key={b.kind}
-            onClick={() => setBuildKind(b.kind)}
-            style={{
-              flex: 1,
-              fontSize: 11,
-              padding: "4px 6px",
-              cursor: "pointer",
-              background: buildKind === b.kind ? "#1a73e8" : "#2a3040",
-              color: "#fff",
-              border: 0,
-              borderRadius: 4,
-            }}
-          >
-            {b.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
-        {MATERIALS.map((m) => (
-          <button
-            key={m.value}
-            onClick={() => setMaterial(m.value)}
-            style={{
-              flex: 1,
-              fontSize: 11,
-              padding: "4px 6px",
-              cursor: "pointer",
-              background: material === m.value ? "#51d88a" : "#2a3040",
-              color: "#fff",
-              border: 0,
-              borderRadius: 4,
-            }}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-      <button
-        onClick={buildHere}
-        style={{
-          width: "100%",
-          fontSize: 12,
-          padding: "6px 8px",
-          cursor: "pointer",
-          background: "#f2c14a",
-          color: "#1a1f2e",
-          border: 0,
-          borderRadius: 4,
-          fontWeight: 600,
-          marginBottom: 8,
-        }}
-      >
-        Construir {buildSpec.label} {material} aquí
-      </button>
+      <label className="q-switch">
+        <input id="admin-editing" type="checkbox" checked={editing} onChange={(e) => onEditingChange(e.target.checked)} />
+        <span className="q-switch__track" aria-hidden="true" />
+        <span>
+          <strong>Modo edición</strong>
+          <span className="q-small q-muted" style={{ display: "block" }}>
+            Arrastra para mover · clic rota · clic derecho borra
+          </span>
+        </span>
+      </label>
 
-      <h5 style={{ margin: "8px 0 4px", color: "#9cc8ff" }}>Existentes</h5>
-      {objects.length === 0 && <p>Sin objetos en el mapa.</p>}
-      <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
-        {objects.map((o) => (
-          <li
-            key={o.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 4,
-            }}
-          >
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
-              {o.label}{" "}
-              {o.kind === "wall" || o.kind === "window" || o.kind === "door" ? (
-                <span style={{ color: "#789" }}>({o.material})</span>
-              ) : null}
-            </span>
-            <button
-              onClick={() => duplicate(o)}
-              style={{ fontSize: 10, padding: "1px 5px", cursor: "pointer" }}
-            >
-              Dup
-            </button>
-            <button
-              onClick={() => remove(o)}
-              style={{
-                fontSize: 10,
-                padding: "1px 5px",
-                cursor: "pointer",
-                color: "#ff7777",
-              }}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-      </ul>
-      {msg && <p style={{ color: "#9cc8ff", fontSize: 11, margin: "6px 0 0" }}>{msg}</p>}
-      <p style={{ color: "#789", fontSize: 10, margin: "8px 0 0" }}>
-        Arrastra los sprites del mapa para moverlos.
-      </p>
-    </div>
+      {open && (
+        <>
+          <h4 id="admin-build" className="q-eyebrow" style={{ marginTop: 16 }}>Construir</h4>
+          <div className="q-seg" role="radiogroup" aria-labelledby="admin-build" style={{ display: "flex" }}>
+            {BUILD_KINDS.map((b) => (
+              <button
+                key={b.kind}
+                type="button"
+                role="radio"
+                aria-checked={buildKind === b.kind}
+                className="q-seg__opt"
+                style={{ flex: 1 }}
+                onClick={() => setBuildKind(b.kind)}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+          <div className="q-seg" role="radiogroup" aria-label="Material" style={{ display: "flex", marginTop: 6 }}>
+            {MATERIALS.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                role="radio"
+                aria-checked={material === m.value}
+                className="q-seg__opt"
+                style={{ flex: 1, padding: "7px 8px" }}
+                onClick={() => setMaterial(m.value)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="q-btn q-btn--primary" style={{ width: "100%", marginTop: 10 }} onClick={buildHere}>
+            Construir {buildSpec.label.toLowerCase()} de {materialLabel(material).toLowerCase()}
+          </button>
+          <p className="q-small q-muted" style={{ margin: "6px 0 0" }}>
+            Aparece en el centro del mapa; luego arrástralo a su sitio.
+          </p>
+
+          <h4 className="q-eyebrow" style={{ marginTop: 16 }}>
+            <span>En el mapa · {objects.length}</span>
+          </h4>
+          {objects.length === 0 && <p className="q-small q-muted">Todavía no hay objetos.</p>}
+          <ul className="q-admin__list">
+            {objects.map((o) => (
+              <li key={o.id}>
+                <span className="q-chip">{kindLabel[o.kind] ?? o.kind}</span>
+                <span className="q-small" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {o.label}
+                  {(o.kind === "wall" || o.kind === "window" || o.kind === "door") && (
+                    <span className="q-muted"> · {materialLabel(o.material)}</span>
+                  )}
+                </span>
+                <button type="button" className="q-btn q-btn--ghost q-btn--sm" onClick={() => duplicate(o)} aria-label={`Duplicar ${o.label}`} title="Duplicar">
+                  ⧉
+                </button>
+                <button type="button" className="q-btn q-btn--ghost q-btn--sm" onClick={() => remove(o)} aria-label={`Eliminar ${o.label}`} title="Eliminar" style={{ color: "var(--q-flame)" }}>
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {msg && <p className="q-small" style={{ color: "var(--q-teal-dark)", margin: "8px 0 0" }}>{msg}</p>}
+    </section>
   );
 }

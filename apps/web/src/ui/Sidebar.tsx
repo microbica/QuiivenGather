@@ -25,6 +25,7 @@ const STATUS_LABEL: Record<NetStatus, string> = {
   online: "En línea",
   connecting: "Conectando…",
   offline: "Sin conexión",
+  demo: "Vista previa",
 };
 
 export function Sidebar({ status, roster, nearby, messages, name, avatar, onEditProfile, sendChat }: Props) {
