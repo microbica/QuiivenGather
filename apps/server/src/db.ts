@@ -2,7 +2,7 @@
 // objetos inteligentes del mapa. Server autoritativo.
 // Migraciones en src/db/migrations/ — se ejecutan en orden al iniciar.
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -133,14 +133,12 @@ function seedObjects(): void {
     n: number;
   };
   if (row.n > 0) return;
-  const publicDir = path.resolve(
-    process.cwd(),
-    "..",
-    "..",
-    "apps",
-    "web",
-    "public",
-  );
+  // Raíces candidatas: monorepo local (cwd=apps/server) y contenedor (cwd=/app).
+  const publicRoots = [
+    path.resolve(process.cwd(), "..", "..", "apps", "web", "public"),
+    path.resolve(process.cwd(), "apps", "web", "public"),
+  ];
+  const publicDir = publicRoots.find((d) => existsSync(d)) ?? publicRoots[0];
   const stmt = db.prepare(
     `INSERT INTO objects (id, label, kind, material, x, y, w, h, radius, url, rotation)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
