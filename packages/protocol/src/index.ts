@@ -1,7 +1,7 @@
 import { ArraySchema, Schema, MapSchema, type } from "@colyseus/schema";
 
 // Shared constants: single source of truth for client prediction,
-// server validation and map bounds (demo.tmj is 40x30 @32px).
+// server validation and map bounds (demo.tmj is 100x60 @32px, see scripts/gen-map.mjs).
 export const TILE = 32;
 export const MAP_W = 100 * TILE; // 3200px - amplio para ~100 personas
 export const MAP_H = 60 * TILE;  // 1920px
@@ -12,8 +12,8 @@ export const MAX_SPEED = 260; // px/s tolerance for server validation
 export const CHAT_MAX_LEN = 280;
 export const CHAT_HISTORY = 50;
 export const MESH_MAX_PEERS = 5; // Fase 3: malla P2P, tope por proximidad
-// Spawn en el centro del corredor principal.
-export const SPAWN = { x: 50 * TILE + TILE / 2, y: 31 * TILE + TILE / 2 };
+// Spawn en la Recepción (oficina Quiiven, scripts/gen-map.mjs).
+export const SPAWN = { x: 50 * TILE + TILE / 2, y: 52 * TILE + TILE / 2 };
 
 /** Jugador. zoneId = "" fuera de zonas; el cliente la reporta (Fase 2.5). */
 export class Player extends Schema {

@@ -12,6 +12,15 @@ export interface Zone extends AABB {
   id: string;
   label: string;
   kind: "private" | "spawn" | "interact";
+  /** Business area that owns the room (ventas, marketing, tech…); "" if none. */
+  area?: string;
+}
+
+/** Static furniture/decoration placed by the map generator ("decor" layer). */
+export interface DecorItem extends AABB {
+  type: string;
+  label: string;
+  props: Record<string, string>;
 }
 
 export interface GameMap {
@@ -25,6 +34,7 @@ export interface GameMap {
   roof: number[];
   collisions: AABB[];
   zones: Zone[];
+  decor: DecorItem[];
   spawn: { x: number; y: number };
 }
 
@@ -60,19 +70,26 @@ export function parseMap(json: any): GameMap {
 
   const collisions: AABB[] = [];
   const zones: Zone[] = [];
+  const decor: DecorItem[] = [];
   let spawn = { x: (widthTiles * tile) / 2, y: (heightTiles * tile) / 2 };
 
   for (const layer of layers.filter((l) => l.type === "objectgroup")) {
     for (const o of layer.objects ?? []) {
       if (layer.name === "collision") {
         collisions.push({ x: o.x, y: o.y, w: o.width ?? 0, h: o.height ?? 0 });
+      } else if (layer.name === "decor") {
+        const props: Record<string, string> = {};
+        for (const p of o.properties ?? []) props[p.name] = String(p.value);
+        decor.push({ type: o.type ?? "", label: o.name ?? "", props, x: o.x, y: o.y, w: o.width ?? 0, h: o.height ?? 0 });
       } else if (layer.name === "zones") {
         if (o.type === "spawn") {
           spawn = { x: o.x + (o.width ?? 0) / 2, y: o.y + (o.height ?? 0) / 2 };
         } else {
           const zoneId =
             o.properties?.find((p) => p.name === "zoneId")?.value ?? o.name;
+          const area = o.properties?.find((p) => p.name === "area")?.value;
           zones.push({
+            area: typeof area === "string" ? area : "",
             id: String(zoneId ?? o.name ?? "zone"),
             label: o.name ?? "zone",
             kind: o.type === "private" ? "private" : "interact",
@@ -97,6 +114,7 @@ export function parseMap(json: any): GameMap {
     roof: tileLayer("roof"),
     collisions,
     zones,
+    decor,
     spawn,
   };
 }

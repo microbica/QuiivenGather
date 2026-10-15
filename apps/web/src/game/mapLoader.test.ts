@@ -41,7 +41,7 @@ describe("mapLoader", () => {
     expect(next).toEqual({ x: 0, y: 0 });
   });
 
-  it("demo.tmj tiene las 5 capas y spawn dentro del mapa", () => {
+  it("demo.tmj (oficina Quiiven) tiene capas, zonas por área y spawn libre", () => {
     const map = parseMap(demoMap);
     expect(map.widthTiles).toBe(100);
     expect(map.heightTiles).toBe(60);
@@ -57,7 +57,13 @@ describe("mapLoader", () => {
         map.collisions,
       ),
     ).toBe(false);
-    // Patio es público.
-    expect(zoneAt(50 * 32, 5 * 32, map.zones)?.id).toBe("patio");
+    // Auditorio para todos (privado), jardín y recepción abiertos.
+    expect(zoneAt(50 * 32, 10 * 32, map.zones)?.id).toBe("auditorio");
+    expect(zoneAt(50 * 32, 26 * 32, map.zones)?.kind).toBe("interact");
+    expect(zoneAt(map.spawn.x, map.spawn.y, map.zones)?.id).toBe("recepcion");
+    // Cada oficina de equipo trae su área para el color.
+    expect(map.zones.find((z) => z.id === "ventas-jenn")?.area).toBe("ventas");
+    expect(map.zones.find((z) => z.id === "mkt-col-c1")?.area).toBe("marketing");
+    expect(map.decor.filter((d) => d.type === "desk").length).toBeGreaterThanOrEqual(56);
   });
 });

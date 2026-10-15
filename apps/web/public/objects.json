@@ -1,26 +1,38 @@
 [
   {
-    "id": "tv-sala1",
-    "label": "TV Sala 1 — Meet",
+    "id": "tv-juntas",
+    "label": "TV Sala de juntas — Meet",
     "kind": "meet",
     "material": "wood",
-    "x": 512,
-    "y": 1056,
+    "x": 2336,
+    "y": 1344,
     "w": 64,
-    "h": 40,
-    "radius": 96,
+    "h": 32,
+    "radius": 128,
     "url": ""
   },
   {
-    "id": "board-plaza",
-    "label": "Pizarra Patio",
+    "id": "tv-auditorio",
+    "label": "Pantalla Auditorio — Meet",
+    "kind": "meet",
+    "material": "wood",
+    "x": 1536,
+    "y": 160,
+    "w": 128,
+    "h": 32,
+    "radius": 192,
+    "url": ""
+  },
+  {
+    "id": "board-creativa",
+    "label": "Pizarra Sala creativa",
     "kind": "board",
     "material": "wood",
-    "x": 1568,
-    "y": 128,
+    "x": 2848,
+    "y": 1344,
     "w": 64,
-    "h": 40,
-    "radius": 96,
+    "h": 32,
+    "radius": 128,
     "url": "https://excalidraw.com/"
   }
 ]

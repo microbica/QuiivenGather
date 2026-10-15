@@ -10,6 +10,7 @@ import {
 import { distancePx, isConnected } from "./proximity";
 import { nearestObject, type SmartObject } from "./objects";
 import { makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
+import { drawDecor, drawFloor } from "./decor";
 import { avatarKey, randomAvatar, type AvatarConfig } from "../avatar/config";
 import { AVATAR_H, gridToCanvas, paintAvatar, type Facing, type Frame } from "../avatar/render";
 import type { SpatialAudio } from "./spatialAudio";
@@ -39,6 +40,8 @@ interface Hud {
   dir: string;
   anim: string;
   zone: string;
+  /** Area of the current room (ventas, marketing…), for the color dot. */
+  area: string;
   near: number;
   chunks: string;
   zoom: number;
@@ -68,6 +71,7 @@ const MAP = {
 } as const;
 
 function drawTile(g: Graphics, gid: number, px: number, py: number, t: number) {
+  if (drawFloor(g, gid, px, py, t)) return;
   if (gid === 1) {
     g.rect(px, py, t, t).fill({ color: (px / t + py / t) % 2 === 0 ? MAP.floorA : MAP.floorB });
   } else if (gid === 2) {
@@ -245,7 +249,7 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
     rebuildRef.current();
   }, [objects, isAdmin, adminMode]);
   const [hud, setHud] = React.useState<Hud>({
-    fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", near: 0, chunks: "—", zoom: 1,
+    fps: 0, x: 0, y: 0, dir: "down", anim: "idle", zone: "—", area: "", near: 0, chunks: "—", zoom: 1,
   });
   const debug = React.useMemo(
     () => new URLSearchParams(window.location.search).has("debug"),
@@ -297,10 +301,18 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
       app.stage.addChild(world);
 
       const groundC = new Container();
+      const decorC = new Container();
+      const canopyC = new Container();
       const objectC = new Container();
       const avatarC = new Container();
       const roofC = new Container();
-      world.addChild(groundC, objectC, avatarC, roofC);
+      world.addChild(groundC, decorC, objectC, avatarC, canopyC, roofC);
+      // Furniture from the map's decor layer; tree canopies go above avatars.
+      for (const item of map.decor) {
+        const { below, above } = drawDecor(item);
+        decorC.addChild(below);
+        if (above) canopyC.addChild(above);
+      }
 
       const groundChunks = buildLayer(map, map.ground, groundC);
       const wallChunks = buildLayer(map, map.walls, objectC);
@@ -342,15 +354,20 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           }
           const sprite = makeObjectSprite(o.kind, o.w, o.h, o.material);
           c.addChild(sprite);
+          const structural = o.kind === "wall" || o.kind === "window" || o.kind === "door";
           const label = new Text({
             text: `${o.label}${mode ? " ✋" : ""}`,
             style: {
               fontSize: 11,
+              fontWeight: "700",
               fill: 0xffffff,
-              fontFamily: "system-ui, sans-serif",
-              stroke: { color: 0x000000, width: 3 },
+              fontFamily: "Cera Pro, Montserrat, sans-serif",
+              stroke: { color: 0x2c2c33, width: 3 },
             },
+            resolution: 2,
           });
+          // Walls/doors only show their name while editing; TVs and boards always do.
+          label.visible = mode || !structural;
           label.anchor.set(0.5, 1);
           // El label sigue al lado "arriba" del bounding box rotado.
           const labelOffset = rotation === 90 || rotation === 270 ? o.h / 2 : o.w / 2;
@@ -685,6 +702,7 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
             dir,
             anim,
             zone: z ? `${z.label} (${z.kind})` : "—",
+            area: z?.area ?? "",
             near: lastNearCount,
             chunks: `${visible}/${allChunks.length}`,
             zoom,
@@ -709,7 +727,8 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
       <div className="q-panel q-topbar">
         <img src={`${import.meta.env.BASE_URL}brand/logo-color.png`} alt="Quiiven" />
         <span className="q-zone">
-          {hud.zone === "—" ? "Área común" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
+          {hud.area && <span className={`q-area-dot q-area-dot--${hud.area}`} aria-hidden="true" />}
+          {hud.zone === "—" ? "Pasillo" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
         </span>
       </div>
       {debug && (

@@ -132,8 +132,9 @@ interface Palette {
 const PALETTES: Record<Material, Palette> = {
   wood:  { fill: 0x8a5f3c, detail: 0x5c3f25, shadow: 0x6b4a2a, grain: 0x6b4a2a, accent: 0xb98a5a },
   metal: { fill: 0x6b7589, detail: 0x3a4252, shadow: 0x2a3040, grain: 0x8a96ad },
-  glass: { fill: 0xa8d8e8, detail: 0x6090a8, shadow: 0x406878, accent: 0xd0eef8 },
-  stone: { fill: 0x707880, detail: 0x4a5256, shadow: 0x383c40, grain: 0x5a6064 },
+  // Quiiven office: glass partitions tinted with Tech blue, solid walls in Carbón.
+  glass: { fill: 0xcfe8f6, detail: 0x349ce2, shadow: 0x066abc, accent: 0xeaf6fc },
+  stone: { fill: 0x3a3a44, detail: 0x2c2c33, shadow: 0x1f1f25, grain: 0x4a4a55 },
 };
 
 function drawWall(g: Graphics, w: number, h: number, m: Material): void {
