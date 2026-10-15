@@ -1,5 +1,5 @@
 import React from "react";
-import { Application, Container, Graphics, Text, FederatedPointerEvent } from "pixi.js";
+import { Application, Container, Graphics, Sprite, Text, Texture, FederatedPointerEvent } from "pixi.js";
 import { CLIENT_SPEED, PLAYER_H, PLAYER_W, TILE } from "@quiiven/protocol";
 import {
   moveWithCollision,
@@ -9,7 +9,9 @@ import {
 } from "./mapLoader";
 import { distancePx, isConnected } from "./proximity";
 import { nearestObject, type SmartObject } from "./objects";
-import { makeAvatarSprite, makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
+import { makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
+import { avatarKey, randomAvatar, type AvatarConfig } from "../avatar/config";
+import { AVATAR_H, gridToCanvas, paintAvatar, type Facing, type Frame } from "../avatar/render";
 import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
 
@@ -46,6 +48,7 @@ interface Remote {
   c: Container;
   label: Text;
   ring: Graphics;
+  view: AvatarView;
   cx: number;
   cy: number;
   connected: boolean;
@@ -115,31 +118,94 @@ function setLabel(label: Text, text: string) {
   pillFitters.get(label)?.();
 }
 
-function makeAvatar(color: number, name: string): { c: Container; label: Text; nub: Graphics; ring: Graphics } {
-  const a = makeAvatarSprite(color, name);
-  // Brand label: Cera Pro on a Carbón pill so names read on the light floor.
-  a.label.style = { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 12, fontWeight: "500", fill: 0xffffff };
-  a.label.resolution = 2;
-  a.label.position.y = -7;
+/** Pixel avatars are painted at 1px per cell and scaled up crisply. */
+const SPRITE_SCALE = 2;
+const FACING_BY_DIR: Record<string, Facing> = { down: "front", up: "back", left: "left", right: "right" };
+const WALK_CYCLE: Frame[] = [1, 0, 2, 0];
+const textureCache = new Map<string, Texture>();
+
+function avatarTexture(cfg: AvatarConfig, facing: Facing, frame: Frame): Texture {
+  const key = `${avatarKey(cfg)}|${facing}|${frame}`;
+  let tex = textureCache.get(key);
+  if (!tex) {
+    tex = Texture.from(gridToCanvas(paintAvatar(cfg, facing, frame)));
+    tex.source.scaleMode = "nearest";
+    textureCache.set(key, tex);
+  }
+  return tex;
+}
+
+interface AvatarView {
+  c: Container;
+  label: Text;
+  nub: Graphics;
+  ring: Graphics;
+  /** dir = down/up/left/right; walking animates the legs. */
+  setPose(dir: string, walking: boolean, nowMs: number): void;
+  setConfig(cfg: AvatarConfig): void;
+}
+
+function makeAvatar(cfg: AvatarConfig, name: string): AvatarView {
+  const c = new Container();
+  // Feet sit on the bottom of the collision box; the head rises above it.
+  const footY = BODY_H + 2;
+  const shadow = new Graphics().ellipse(BODY_W / 2, footY - 1, 11, 3.5).fill({ color: 0x2c2c33, alpha: 0.18 });
+  const sprite = new Sprite(avatarTexture(cfg, "front", 0));
+  sprite.anchor.set(0.5, 1);
+  sprite.scale.set(SPRITE_SCALE);
+  sprite.position.set(BODY_W / 2, footY);
+  // Direction is shown by the sprite itself; the old nub stays for API compatibility.
+  const nub = new Graphics();
+  nub.visible = false;
+  const ring = new Graphics();
+
+  const labelY = footY - AVATAR_H * SPRITE_SCALE + 6;
+  const label = new Text({
+    text: name,
+    style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 12, fontWeight: "500", fill: 0xffffff },
+    resolution: 2,
+  });
+  label.anchor.set(0.5, 1);
+  label.position.set(BODY_W / 2, labelY);
+  // Carbón pill behind the name so it reads on any floor.
   const pill = new Graphics();
-  const cx = a.label.position.x;
   const fitPill = () => {
-    const w = a.label.width + 14;
-    pill.clear().roundRect(cx - w / 2, -7 - a.label.height - 3, w, a.label.height + 6, 9).fill({ color: 0x2c2c33, alpha: 0.88 });
+    const w = label.width + 14;
+    pill.clear().roundRect(BODY_W / 2 - w / 2, labelY - label.height - 3, w, label.height + 6, 9).fill({ color: 0x2c2c33, alpha: 0.88 });
   };
-  a.c.addChildAt(pill, a.c.getChildIndex(a.label));
   fitPill();
-  // Re-measure once the frame renders and again when Cera Pro finishes loading.
   requestAnimationFrame(fitPill);
   void document.fonts?.ready.then(fitPill);
-  pillFitters.set(a.label, fitPill);
-  return a;
+  pillFitters.set(label, fitPill);
+  c.addChild(shadow, ring, sprite, nub, pill, label);
+
+  let current = cfg;
+  let shown = "front|0";
+  return {
+    c,
+    label,
+    nub,
+    ring,
+    setPose(dir, walking, nowMs) {
+      const facing = FACING_BY_DIR[dir] ?? "front";
+      const frame = walking ? WALK_CYCLE[Math.floor(nowMs / 140) % WALK_CYCLE.length] : 0;
+      const key = `${facing}|${frame}`;
+      if (key === shown) return;
+      shown = key;
+      sprite.texture = avatarTexture(current, facing, frame);
+    },
+    setConfig(next) {
+      if (avatarKey(next) === avatarKey(current)) return;
+      current = next;
+      shown = "";
+    },
+  };
 }
 
 function paintRing(ring: Graphics, connected: boolean) {
   ring.clear();
   ring
-    .roundRect(-4, -4, BODY_W + 8, BODY_H + 8, 8)
+    .ellipse(BODY_W / 2, BODY_H + 1, 15, 6)
     .stroke({ color: connected ? 0x18d3b8 : 0x2c2c33, width: 2, alpha: connected ? 1 : 0 });
 }
 
@@ -156,8 +222,10 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
+export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; avatar: AvatarConfig; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
+  const avatarRef = React.useRef(avatar);
+  avatarRef.current = avatar;
   const nameRef = React.useRef(name);
   nameRef.current = name;
   const onNearbyRef = React.useRef(onNearby);
@@ -374,7 +442,8 @@ export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, o
         for (const [, mk] of objMarkers) mk.c.cursor = "grab";
       });
 
-      const local = makeAvatar(0x4f8ff7, nameRef.current);
+      avatarC.sortableChildren = true;
+      const local = makeAvatar(avatarRef.current, nameRef.current);
       avatarC.addChild(local.c);
 
       // Debug overlay: collisions (red) + zones (blue).
@@ -492,7 +561,10 @@ export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, o
           anim = "idle";
         }
         if (local.label.text !== nameRef.current) setLabel(local.label, nameRef.current);
+        local.setConfig(avatarRef.current);
+        local.setPose(dir, anim === "walk", performance.now());
         local.c.position.set(Math.round(pos.x), Math.round(pos.y));
+        local.c.zIndex = local.c.position.y;
 
         // Publish at ~15Hz when something changed (pos/dir/anim/zone).
         const now = performance.now();
@@ -517,8 +589,9 @@ export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, o
             if (id === net.sessionId) return;
             let r = remotes.get(id);
             if (!r) {
-              const built = makeAvatar(0xf2a54a, p.name);
-              r = { c: built.c, label: built.label, ring: built.ring, cx: p.x, cy: p.y, connected: false };
+              // Until avatars sync over the network, others get a stable look from their name.
+              const built = makeAvatar(randomAvatar(p.name), p.name);
+              r = { c: built.c, label: built.label, ring: built.ring, view: built, cx: p.x, cy: p.y, connected: false };
               paintRing(r.ring, false);
               avatarC.addChild(r.c);
               remotes.set(id, r);
@@ -528,6 +601,8 @@ export function GameCanvas({ name, net, objects, isAdmin, adminMode, onNearby, o
             r.cx += (p.x - r.cx) * k;
             r.cy += (p.y - r.cy) * k;
             r.c.position.set(Math.round(r.cx), Math.round(r.cy));
+            r.view.setPose(p.dir, p.anim === "walk", now);
+            r.c.zIndex = r.c.position.y;
 
             const pz = map.zones.find((z) => z.id === p.zoneId);
             const connected = isConnected(

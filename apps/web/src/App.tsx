@@ -8,6 +8,8 @@ import { SmartObjectModal } from "./ui/SmartObjectModal";
 import { VoicePanel } from "./ui/VoicePanel";
 import { GooglePanel } from "./ui/GooglePanel";
 import { AdminPanel } from "./ui/AdminPanel";
+import { ProfilePanel } from "./ui/ProfilePanel";
+import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
 import type { CalendarEvent } from "./api/google";
 import { getStatus, startOAuth, type GoogleStatus } from "./api/google";
 
@@ -100,6 +102,24 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   const [activeObject, setActiveObject] = React.useState<SmartObject | null>(null);
   const [calendarMeets, setCalendarMeets] = React.useState<CalendarEvent[]>([]);
   const [adminMode, setAdminMode] = React.useState(false);
+  // Saved avatar, or a starting suggestion seeded by the name on first visit.
+  const [firstVisit] = React.useState(() => loadAvatar() === null);
+  const [avatar, setAvatar] = React.useState<AvatarConfig>(() => loadAvatar() ?? randomAvatar(name));
+  const [draftAvatar, setDraftAvatar] = React.useState<AvatarConfig | null>(null);
+  const [profileOpen, setProfileOpen] = React.useState(firstVisit);
+  const [profileIsNew, setProfileIsNew] = React.useState(firstVisit);
+  const closeProfile = React.useCallback(() => {
+    setDraftAvatar(null);
+    setProfileOpen(false);
+    setProfileIsNew(false);
+  }, []);
+  const saveProfile = React.useCallback((cfg: AvatarConfig) => {
+    saveAvatar(cfg);
+    setAvatar(cfg);
+    setDraftAvatar(null);
+    setProfileOpen(false);
+    setProfileIsNew(false);
+  }, []);
   const { status, roster, messages, sendChat, net, meetUrl, objects } = useColyseusRoom(name);
   const voice = useMeshVoice(net);
 
@@ -130,6 +150,8 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         nearby={nearby}
         messages={messages}
         name={name}
+        avatar={avatar}
+        onEditProfile={() => setProfileOpen(true)}
         onName={() => undefined}
         sendChat={sendChat}
       />
@@ -149,8 +171,18 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         onToggleVideo={voice.toggleVideo}
       />
       {isAdmin && <AdminPanel net={net} objects={objects} />}
-      <GameCanvas name={name} net={net} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
-      {activeObject && (
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
+      {profileOpen && (
+        <ProfilePanel
+          name={name}
+          value={avatar}
+          firstTime={profileIsNew}
+          onPreview={setDraftAvatar}
+          onSave={saveProfile}
+          onClose={closeProfile}
+        />
+      )}
+      {activeObject && !profileOpen && (
         <SmartObjectModal
           obj={activeObject}
           liveMeetUrl={meetUrl}

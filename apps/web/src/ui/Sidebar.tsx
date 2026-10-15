@@ -4,7 +4,8 @@ import type {
   NetStatus,
   RosterEntry,
 } from "../game/useColyseus";
-import { initials, personColor } from "./people";
+import { AvatarCanvas } from "../avatar/AvatarCanvas";
+import { randomAvatar, type AvatarConfig } from "../avatar/config";
 
 interface Props {
   status: NetStatus;
@@ -12,6 +13,9 @@ interface Props {
   nearby: string[];
   messages: ChatEntry[];
   name: string;
+  /** The person's own avatar; others get a stable look from their name for now. */
+  avatar: AvatarConfig;
+  onEditProfile: () => void;
   /** Kept for API compatibility; renaming is not exposed in the UI yet. */
   onName: (n: string) => void;
   sendChat: (text: string) => void;
@@ -23,7 +27,7 @@ const STATUS_LABEL: Record<NetStatus, string> = {
   offline: "Sin conexión",
 };
 
-export function Sidebar({ status, roster, nearby, messages, name, sendChat }: Props) {
+export function Sidebar({ status, roster, nearby, messages, name, avatar, onEditProfile, sendChat }: Props) {
   const [draft, setDraft] = React.useState("");
   const chatEnd = React.useRef<HTMLDivElement>(null);
 
@@ -59,20 +63,27 @@ export function Sidebar({ status, roster, nearby, messages, name, sendChat }: Pr
         </h3>
         {sorted.map((r) => {
           const near = nearby.includes(r.id);
+          const face = (
+            <span className="q-avatar-mini" data-near={near}>
+              <AvatarCanvas cfg={r.self ? avatar : randomAvatar(r.name)} scale={2} cropTop={3} cropRows={14} />
+            </span>
+          );
+          if (r.self) {
+            return (
+              <button key={r.id} type="button" className="q-person q-person--self" onClick={onEditProfile}>
+                {face}
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  {r.name} <span className="q-muted">(tú)</span>
+                </span>
+                <span className="q-small q-muted">Editar ✎</span>
+              </button>
+            );
+          }
           return (
             <div key={r.id} className="q-person">
-              <span
-                className="q-avatar"
-                data-near={near}
-                style={{ background: personColor(r.name) }}
-              >
-                {initials(r.name)}
-              </span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                {r.name}
-                {r.self && <span className="q-muted"> (tú)</span>}
-              </span>
-              {near && <span className="q-small" style={{ color: "var(--q-teal)" }}>cerca</span>}
+              {face}
+              <span style={{ flex: 1, minWidth: 0 }}>{r.name}</span>
+              {near && <span className="q-small" style={{ color: "var(--q-teal-dark)" }}>cerca</span>}
             </div>
           );
         })}
