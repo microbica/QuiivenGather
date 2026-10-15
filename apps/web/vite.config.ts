@@ -9,4 +9,9 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  preview: {
+    port: 5173,
+    // Tras Caddy el Host es el dominio; sin esto vite preview responde 403.
+    allowedHosts: ["gather.quiiven.com", "184.192.203.121"],
+  },
 });
