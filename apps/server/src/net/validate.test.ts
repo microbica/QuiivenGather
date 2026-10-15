@@ -74,5 +74,7 @@ describe("chat y nombres", () => {
     expect(validDir("hack", "down")).toBe("down");
     expect(validAnim("walk", "idle")).toBe("walk");
     expect(validAnim("fly", "idle")).toBe("idle");
+    expect(validAnim("sit", "idle")).toBe("sit");
+    expect(validAnim("stretch", "idle")).toBe("stretch");
   });
 });

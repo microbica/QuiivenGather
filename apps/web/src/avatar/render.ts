@@ -6,6 +6,8 @@ import type { AvatarConfig } from "./config";
 export type Facing = "front" | "back" | "right" | "left";
 /** 0 = standing, 1 = left foot up, 2 = right foot up. */
 export type Frame = 0 | 1 | 2;
+/** What the body is doing; poses come from interactions with furniture. */
+export type Pose = "stand" | "sit" | "stretch" | "drink";
 
 export const AVATAR_W = 16;
 export const AVATAR_H = 28;
@@ -70,9 +72,10 @@ interface Layout {
   hw: number; // torso half width
 }
 
-function layout(cfg: AvatarConfig): Layout {
+function layout(cfg: AvatarConfig, pose: Pose = "stand"): Layout {
   const T = cfg.height === "alta" ? 6 : 5;
-  const L = cfg.height === "baja" ? 3 : cfg.height === "media" ? 4 : 5;
+  // Seated: thighs point at the viewer, so only one leg row shows above the shoes.
+  const L = pose === "sit" ? 1 : cfg.height === "baja" ? 3 : cfg.height === "media" ? 4 : 5;
   const hw = cfg.build === "delgada" ? 3 : 4;
   const shoe = AVATAR_H - 1;
   const lT = shoe - L;
@@ -216,9 +219,41 @@ function drawHair(c: Canvas, l: Layout, cfg: AvatarConfig, facing: Facing) {
   else c.row(hT, 6, 9, hi);
 }
 
-function drawAccessory(c: Canvas, l: Layout, cfg: AvatarConfig, facing: Facing) {
-  const { hT } = l;
-  if (cfg.accessory === "audifonos") {
+function drawAccessories(c: Canvas, l: Layout, cfg: AvatarConfig, facing: Facing) {
+  const { hT, tT } = l;
+  const has = (x: AvatarConfig["accessories"][number]) => cfg.accessories.includes(x);
+  const side = facing === "right" || facing === "left";
+
+  if (has("bufanda")) {
+    const scarf = "#ff7442";
+    c.row(tT, 4, 11, scarf);
+    c.row(tT + 1, 5, 10, shade(scarf, -0.12));
+    if (facing === "front") c.rect(9, tT + 1, 10, tT + 3, scarf);
+  }
+  if (has("lazo") && !has("gorra") && !has("gorro")) {
+    const bow = "#e66fa6";
+    const x = facing === "left" ? 4 : 10;
+    c.row(hT - 1, x, x + 2, bow);
+    c.set(x + 1, hT, shade(bow, -0.2));
+  }
+  if (has("gorra")) {
+    const cap = "#349ce2";
+    c.row(hT - 2, 5, 10, cap);
+    c.rect(4, hT - 1, 11, hT + 1, cap);
+    c.set(7, hT - 1, "#ffffff"); // logo dot
+    if (facing === "front") c.row(hT + 2, 3, 12, shade(cap, -0.2)); // visor
+    else if (side) c.row(hT + 1, facing === "right" ? 11 : 1, facing === "right" ? 14 : 4, shade(cap, -0.2));
+    else c.row(hT + 2, 5, 10, cap);
+  }
+  if (has("gorro")) {
+    const beanie = "#ffae00";
+    c.row(hT - 3, 7, 8, "#f4f4f6"); // pompom
+    c.row(hT - 2, 5, 10, beanie);
+    c.rect(4, hT - 1, 11, hT, beanie);
+    c.row(hT + 1, 3, 12, shade(beanie, -0.18)); // folded rim
+    c.row(hT + 2, 3, 12, shade(beanie, -0.18));
+  }
+  if (has("audifonos")) {
     c.row(hT - 2, 5, 10, INK);
     c.set(4, hT - 1, INK);
     c.set(11, hT - 1, INK);
@@ -226,16 +261,17 @@ function drawAccessory(c: Canvas, l: Layout, cfg: AvatarConfig, facing: Facing) 
     c.rect(12, hT + 3, 13, hT + 6, INK);
     c.set(2, hT + 4, "#18d3b8");
     c.set(13, hT + 4, "#18d3b8");
-    return;
   }
-  if (cfg.accessory === "gafas" && facing !== "back") {
-    const lens = "#cfe7f5";
+  const glasses = has("gafas") ? "gafas" : has("gafas-sol") ? "sol" : null;
+  if (glasses && facing !== "back") {
+    const lens = glasses === "sol" ? "#2c2c33" : "#cfe7f5";
     if (facing === "front") {
       for (const x0 of [4, 9]) {
         c.row(hT + 4, x0, x0 + 2, INK);
         c.set(x0, hT + 5, INK);
         c.set(x0 + 2, hT + 5, INK);
-        c.set(x0 + 1, hT + 6, lens);
+        if (glasses === "sol") c.row(hT + 5, x0, x0 + 2, lens);
+        c.set(x0 + 1, hT + 6, glasses === "sol" ? lens : lens);
       }
       c.row(hT + 4, 7, 8, INK);
     } else {
@@ -243,8 +279,44 @@ function drawAccessory(c: Canvas, l: Layout, cfg: AvatarConfig, facing: Facing) 
       c.row(hT + 4, x0, x0 + 2, INK);
       c.set(x0, hT + 5, INK);
       c.set(x0 + 2, hT + 5, INK);
+      if (glasses === "sol") c.set(x0 + 1, hT + 5, lens);
       c.row(hT + 4, facing === "right" ? 4 : 7, facing === "right" ? 8 : 11, INK);
     }
+  }
+}
+
+/** Arms raised for "stretch" (frame alternates up / out) and a mug for "drink". */
+function drawPoseProps(c: Canvas, l: Layout, cfg: AvatarConfig, facing: Facing, pose: Pose, frame: Frame) {
+  const { tT, T, hw } = l;
+  const x0 = 8 - hw;
+  const x1 = 7 + hw;
+  if (pose === "stretch" && (facing === "front" || facing === "back")) {
+    // Clear the resting arms, then draw them overhead.
+    for (let y = tT; y < tT + T; y++) {
+      c.rect(x0 - 2, y, x0 - 1, y, "");
+      c.rect(x1 + 1, y, x1 + 2, y, "");
+    }
+    if (frame !== 1) {
+      // Arms straight up, beside the head.
+      for (let y = tT - 6; y <= tT; y++) {
+        const color = y === tT - 6 ? cfg.skin : cfg.topColor;
+        c.rect(1, y, 2, y, color);
+        c.rect(13, y, 14, y, color);
+      }
+    } else {
+      // Arms open to the sides.
+      c.rect(x0 - 4, tT + 1, x0 - 1, tT + 1, cfg.topColor);
+      c.rect(x1 + 1, tT + 1, x1 + 4, tT + 1, cfg.topColor);
+      c.set(x0 - 4, tT + 1, cfg.skin);
+      c.set(x1 + 4, tT + 1, cfg.skin);
+    }
+  }
+  if (pose === "drink" && facing !== "back") {
+    const mx = facing === "left" ? x0 - 4 : x1 + 2;
+    const my = tT + T - 3;
+    c.rect(mx, my, mx + 1, my + 2, "#f4f4f6");
+    c.set(mx, my, "#7a4a2c"); // coffee
+    c.set(facing === "left" ? mx - 1 : mx + 2, my + 1, "#f4f4f6"); // handle
   }
 }
 
@@ -372,20 +444,21 @@ function outline(c: Canvas) {
  * Paints the avatar. Layers go back to front: long hair behind, legs, arms
  * and torso, head, face, facial hair, hair, accessories, then a Carbón outline.
  */
-export function paintAvatar(cfg: AvatarConfig, facing: Facing = "front", frame: Frame = 0): PixelGrid {
+export function paintAvatar(cfg: AvatarConfig, facing: Facing = "front", frame: Frame = 0, pose: Pose = "stand"): PixelGrid {
   const c = new Canvas(AVATAR_W, AVATAR_H);
-  const l = layout(cfg);
+  const l = layout(cfg, pose);
   const longHair = cfg.hair === "largo" && facing !== "back";
   if (longHair) {
     c.rect(2, l.hT + 4, 13, l.tT + 3, cfg.hairColor);
   }
-  drawLegs(c, l, cfg, facing, frame);
+  drawLegs(c, l, cfg, facing, pose === "stand" ? frame : 0);
   drawTorsoAndArms(c, l, cfg, facing);
   drawHead(c, l, cfg.skin);
   if (facing !== "back") drawFace(c, l, cfg, facing);
   drawFacialHair(c, l, cfg, facing);
   drawHair(c, l, cfg, facing);
-  drawAccessory(c, l, cfg, facing);
+  drawAccessories(c, l, cfg, facing);
+  drawPoseProps(c, l, cfg, facing, pose, frame);
   outline(c);
   return { w: c.w, h: c.h, px: c.px };
 }

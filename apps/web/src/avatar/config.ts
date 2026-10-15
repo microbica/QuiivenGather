@@ -1,3 +1,5 @@
+import { PET_DEFAULT_COLOR } from "./pets";
+
 // Avatar configuration: the catalog of options a person can pick in their
 // profile, plus helpers to validate, randomize and persist a choice.
 
@@ -16,7 +18,21 @@ export type HairStyle =
 export type FacialHair = "ninguna" | "bigote" | "barba";
 export type Top = "camiseta" | "camisa" | "buzo" | "blusa" | "vestido";
 export type Bottom = "pantalon" | "jean" | "falda" | "short";
-export type Accessory = "ninguno" | "gafas" | "audifonos";
+export type Accessory = "gafas" | "gafas-sol" | "audifonos" | "gorra" | "gorro" | "bufanda" | "lazo";
+export type Pet =
+  | "ninguna"
+  | "perro"
+  | "gato"
+  | "conejo"
+  | "loro"
+  | "vaca"
+  | "caballo"
+  | "cerdo"
+  | "oveja"
+  | "cabra"
+  | "pato"
+  | "gallina"
+  | "llama";
 
 export interface AvatarConfig {
   body: Body;
@@ -31,7 +47,10 @@ export interface AvatarConfig {
   bottom: Bottom;
   bottomColor: string;
   shoesColor: string;
-  accessory: Accessory;
+  /** Any combination, at most one per body slot (see ACCESSORY_SLOT). */
+  accessories: Accessory[];
+  pet: Pet;
+  petColor: string;
 }
 
 export interface Option<T extends string> {
@@ -82,10 +101,50 @@ export const BOTTOMS: Option<Bottom>[] = [
   { id: "short", label: "Short" },
 ];
 export const ACCESSORIES: Option<Accessory>[] = [
-  { id: "ninguno", label: "Ninguno" },
   { id: "gafas", label: "Gafas" },
+  { id: "gafas-sol", label: "Gafas de sol" },
   { id: "audifonos", label: "Audífonos" },
+  { id: "gorra", label: "Gorra" },
+  { id: "gorro", label: "Gorro" },
+  { id: "bufanda", label: "Bufanda" },
+  { id: "lazo", label: "Lazo" },
 ];
+/** Accessories that share a slot replace each other (two hats can't stack). */
+export const ACCESSORY_SLOT: Record<Accessory, string> = {
+  gafas: "ojos",
+  "gafas-sol": "ojos",
+  audifonos: "oidos",
+  gorra: "cabeza",
+  gorro: "cabeza",
+  bufanda: "cuello",
+  lazo: "pelo",
+};
+/** Adds or removes an accessory, dropping whatever used the same slot. */
+export function toggleAccessory(list: Accessory[], a: Accessory): Accessory[] {
+  if (list.includes(a)) return list.filter((x) => x !== a);
+  return [...list.filter((x) => ACCESSORY_SLOT[x] !== ACCESSORY_SLOT[a]), a];
+}
+export const PETS: Option<Pet>[] = [
+  { id: "ninguna", label: "Sin mascota" },
+  { id: "perro", label: "Perro" },
+  { id: "gato", label: "Gato" },
+  { id: "conejo", label: "Conejo" },
+  { id: "loro", label: "Loro" },
+  { id: "vaca", label: "Vaca" },
+  { id: "caballo", label: "Caballo" },
+  { id: "cerdo", label: "Cerdo" },
+  { id: "oveja", label: "Oveja" },
+  { id: "cabra", label: "Cabra" },
+  { id: "pato", label: "Pato" },
+  { id: "gallina", label: "Gallina" },
+  { id: "llama", label: "Llama" },
+];
+/** Profile groups: house pets first, then farm animals. */
+export const PET_GROUPS: { label: string; ids: Pet[] }[] = [
+  { label: "Mascotas", ids: ["perro", "gato", "conejo", "loro"] },
+  { label: "Granja", ids: ["vaca", "caballo", "cerdo", "oveja", "cabra", "pato", "gallina", "llama"] },
+];
+export const PET_COLORS = ["#d9a05b", "#8a5a3a", "#2c2c33", "#f4f4f6", "#e2c9a0", "#a9a9b2", "#f5a9b8", "#ff7442", "#3fbf78", "#18d3b8", "#349ce2", "#a98bd6"];
 
 /** Skin tones from light to deep. */
 export const SKIN_TONES = ["#ffe1c9", "#f6c9a3", "#e3aa80", "#c98a5c", "#9c6440", "#6b432a"];
@@ -135,7 +194,9 @@ export const DEFAULT_AVATAR: AvatarConfig = {
   bottom: "jean",
   bottomColor: DENIM,
   shoesColor: SHOE_COLORS[0],
-  accessory: "ninguno",
+  accessories: [],
+  pet: "ninguna",
+  petColor: PET_COLORS[0],
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -145,6 +206,15 @@ function pick<T extends string>(opts: Option<T>[], v: unknown, fallback: T): T {
 }
 function color(v: unknown, fallback: string): string {
   return typeof v === "string" && HEX.test(v) ? v.toLowerCase() : fallback;
+}
+
+function sanitizeAccessories(raw: unknown): Accessory[] {
+  if (!Array.isArray(raw)) return [];
+  let out: Accessory[] = [];
+  for (const a of raw) {
+    if (ACCESSORIES.some((o) => o.id === a) && !out.includes(a as Accessory)) out = toggleAccessory(out, a as Accessory);
+  }
+  return out;
 }
 
 /** Accepts anything (stored JSON, network data) and returns a safe config. */
@@ -164,7 +234,9 @@ export function sanitizeAvatar(raw: unknown): AvatarConfig {
     bottom: pick(BOTTOMS, r.bottom, d.bottom),
     bottomColor: color(r.bottomColor, d.bottomColor),
     shoesColor: color(r.shoesColor, d.shoesColor),
-    accessory: pick(ACCESSORIES, r.accessory, d.accessory),
+    accessories: sanitizeAccessories(r.accessories ?? (r.accessory ? [r.accessory] : [])),
+    pet: pick(PETS, r.pet, d.pet),
+    petColor: color(r.petColor, d.petColor),
   };
 }
 
@@ -205,7 +277,20 @@ export function randomAvatar(seed?: string): AvatarConfig {
     bottom: one(BOTTOMS).id,
     bottomColor: rnd() < 0.5 ? DENIM : one(CLOTH_COLORS),
     shoesColor: one(SHOE_COLORS),
-    accessory: rnd() < 0.7 ? "ninguno" : one(ACCESSORIES.slice(1)).id,
+    accessories: (() => {
+      let list: Accessory[] = [];
+      const n = rnd() < 0.55 ? 0 : rnd() < 0.7 ? 1 : 2;
+      for (let i = 0; i < n; i++) {
+        const a = one(ACCESSORIES).id;
+        if (!list.includes(a)) list = toggleAccessory(list, a);
+      }
+      return list;
+    })(),
+    ...(() => {
+      const pet: Pet = rnd() < 0.35 ? one(PETS.slice(1)).id : "ninguna";
+      const natural = pet === "ninguna" ? PET_COLORS[0] : PET_DEFAULT_COLOR[pet];
+      return { pet, petColor: rnd() < 0.7 ? natural : one(PET_COLORS) };
+    })(),
   };
 }
 

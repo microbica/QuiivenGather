@@ -1,6 +1,8 @@
 import React from "react";
 import type { AvatarConfig } from "./config";
-import { AVATAR_H, AVATAR_W, gridToCanvas, paintAvatar, type Facing, type Frame } from "./render";
+import { AVATAR_H, AVATAR_W, gridToCanvas, paintAvatar, type Facing, type Frame, type PixelGrid } from "./render";
+import { paintPet } from "./pets";
+import type { Pet } from "./config";
 
 interface Props {
   cfg: AvatarConfig;
@@ -37,6 +39,30 @@ export function AvatarCanvas({ cfg, facing = "front", frame = 0, scale = 4, crop
       aria-label={label}
       aria-hidden={label ? undefined : true}
       style={{ width: AVATAR_W * scale, height: rows * scale, imageRendering: "pixelated", display: "block" }}
+    />
+  );
+}
+
+/** Crisp pixel-art pet for the profile (thumbnails and next to the preview). */
+export function PetCanvas({ pet, color, scale = 4, label }: { pet: Pet; color: string; scale?: number; label?: string }) {
+  const ref = React.useRef<HTMLCanvasElement>(null);
+  const grid: PixelGrid = React.useMemo(() => paintPet(pet, color), [pet, color]);
+  React.useEffect(() => {
+    const out = ref.current;
+    const ctx = out?.getContext("2d");
+    if (!out || !ctx) return;
+    ctx.clearRect(0, 0, out.width, out.height);
+    ctx.drawImage(gridToCanvas(grid), 0, 0);
+  }, [grid]);
+  return (
+    <canvas
+      ref={ref}
+      width={grid.w}
+      height={grid.h}
+      role={label ? "img" : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      style={{ width: grid.w * scale, height: grid.h * scale, imageRendering: "pixelated", display: "block" }}
     />
   );
 }

@@ -10,7 +10,8 @@ import {
 } from "@quiiven/protocol";
 
 export const DIRS = ["up", "down", "left", "right"] as const;
-export const ANIMS = ["idle", "walk"] as const;
+// sit/drink/stretch: poses from using furniture (chairs, coffee, mats).
+export const ANIMS = ["idle", "walk", "sit", "drink", "stretch"] as const;
 
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
