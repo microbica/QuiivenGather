@@ -14,6 +14,8 @@ export interface Interactable {
   dir: string;
   /** Short verb shown in the hint, e.g. "Sentarse". */
   label: string;
+  /** For desk chairs: the decor id of the desk in front of it. */
+  deskId?: number;
 }
 
 /** Network anim value for each activity (validated by the server). */
@@ -21,6 +23,7 @@ export const ANIM_BY_ACTIVITY: Record<Activity, string> = { sit: "sit", drink: "
 
 export function buildInteractables(decor: DecorItem[], tile: number): Interactable[] {
   const out: Interactable[] = [];
+  const desks = decor.filter((d) => d.type === "desk");
   decor.forEach((d, i) => {
     const facing = d.props.facing === "up" ? "up" : "down";
     const cx = d.x + d.w / 2;
@@ -30,7 +33,13 @@ export function buildInteractables(decor: DecorItem[], tile: number): Interactab
     switch (d.type) {
       case "chair":
         // A 2-tile desk chair is one seat; meeting chairs are 1 tile each.
-        if (d.w > tile * 1.5 && d.w <= tile * 2) add("sit", cx, cy + 8, facing, "Sentarse");
+        if (d.w > tile * 1.5 && d.w <= tile * 2) {
+          add("sit", cx, cy + 8, facing, "Sentarse");
+          // The desk sits right below a "down" chair, right above an "up" one.
+          const deskY = facing === "down" ? d.y + tile : d.y - tile;
+          const desk = desks.find((k) => k.x === d.x && k.y === deskY && k.props.exec !== "true");
+          if (desk) out[out.length - 1].deskId = desk.id;
+        }
         else for (let x = d.x, n = 0; x < d.x + d.w; x += tile, n++) add("sit", x + tile / 2, cy + 8, facing, "Sentarse", n);
         break;
       case "seat":

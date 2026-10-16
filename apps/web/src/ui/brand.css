@@ -839,6 +839,30 @@ input {
   background: var(--q-teal-dark);
 }
 
+.q-hint--desk {
+  bottom: 76px;
+}
+.q-desk-preview {
+  position: relative;
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  filter: drop-shadow(0 18px 18px rgba(44, 44, 51, 0.18));
+}
+.q-desk-chair {
+  order: 2;
+  width: 88px;
+  height: 52px;
+  border-radius: 18px;
+  border: 6px solid #4a4a55;
+  outline: 2px solid var(--q-carbon);
+}
+.q-thumbs--desk {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+}
+
 /* ---------- Admin ---------- */
 .q-admin {
   position: absolute;

@@ -9,6 +9,9 @@ import { VoicePanel } from "./ui/VoicePanel";
 import { GooglePanel } from "./ui/GooglePanel";
 import { AdminPanel } from "./ui/AdminPanel";
 import { ProfilePanel } from "./ui/ProfilePanel";
+import { DeskPanel } from "./ui/DeskPanel";
+import { defaultDesk, loadDesk, saveDesk, type DeskCustom } from "./avatar/desk";
+import type { DeskAction } from "./game/GameCanvas";
 import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
 import type { CalendarEvent } from "./api/google";
 import { getStatus, startOAuth, type GoogleStatus } from "./api/google";
@@ -113,6 +116,22 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
+  // "Mi escritorio": one claimed desk per person (saved in this browser for now).
+  const [myDesk, setMyDesk] = React.useState<DeskCustom | null>(() => loadDesk());
+  const [deskDraft, setDeskDraft] = React.useState<DeskCustom | null>(null);
+  const [deskPanel, setDeskPanel] = React.useState<{ roomName: string } | null>(null);
+  const onDeskAction = React.useCallback(
+    (a: DeskAction) => {
+      if (a.type === "claim") {
+        // Keep your decoration when moving to another desk.
+        const next = myDesk ? { ...myDesk, deskId: a.deskId } : defaultDesk(a.deskId);
+        setMyDesk(next);
+        saveDesk(next);
+      }
+      setDeskPanel({ roomName: a.roomName });
+    },
+    [myDesk],
+  );
   const saveProfile = React.useCallback((cfg: AvatarConfig) => {
     saveAvatar(cfg);
     setAvatar(cfg);
@@ -171,7 +190,30 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         onToggleVideo={voice.toggleVideo}
       />
       {isAdmin && <AdminPanel net={net} objects={objects} editing={adminMode} onEditingChange={setAdminMode} />}
-      <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} myDesk={deskDraft ?? myDesk} onDeskAction={onDeskAction} net={net} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
+      {deskPanel && myDesk && (
+        <DeskPanel
+          value={myDesk}
+          roomName={deskPanel.roomName}
+          onPreview={setDeskDraft}
+          onSave={(d) => {
+            setMyDesk(d);
+            saveDesk(d);
+            setDeskDraft(null);
+            setDeskPanel(null);
+          }}
+          onRelease={() => {
+            setMyDesk(null);
+            saveDesk(null);
+            setDeskDraft(null);
+            setDeskPanel(null);
+          }}
+          onClose={() => {
+            setDeskDraft(null);
+            setDeskPanel(null);
+          }}
+        />
+      )}
       {profileOpen && (
         <ProfilePanel
           name={name}
@@ -182,7 +224,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           onClose={closeProfile}
         />
       )}
-      {activeObject && !profileOpen && (
+      {activeObject && !profileOpen && !deskPanel && (
         <SmartObjectModal
           obj={activeObject}
           liveMeetUrl={meetUrl}

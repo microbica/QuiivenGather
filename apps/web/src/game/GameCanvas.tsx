@@ -14,6 +14,7 @@ import { drawDecor, drawFloor } from "./decor";
 import { avatarKey, randomAvatar, type AvatarConfig } from "../avatar/config";
 import { AVATAR_H, gridToCanvas, paintAvatar, type Facing, type Frame, type Pose } from "../avatar/render";
 import { paintPet } from "../avatar/pets";
+import { paintDesk, type DeskCustom } from "../avatar/desk";
 import { ANIM_BY_ACTIVITY, buildInteractables, nearestInteractable, type Interactable } from "./interactions";
 import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
@@ -48,6 +49,8 @@ interface Hud {
   chunks: string;
   zoom: number;
 }
+
+export type DeskAction = { type: "claim" | "edit"; deskId: number; roomName: string };
 
 interface Remote {
   c: Container;
@@ -311,11 +314,19 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; avatar: AvatarConfig; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
+export function GameCanvas({ name, avatar, myDesk, onDeskAction, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; avatar: AvatarConfig; myDesk: DeskCustom | null; onDeskAction: (a: DeskAction) => void; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   /** Set by the E key or the hint button; consumed by the game loop. */
   const interactRef = React.useRef(false);
   const [hint, setHint] = React.useState<{ label: string; active: boolean } | null>(null);
+  /** Desk you are sitting at (to claim or customize it). */
+  const [seatDesk, setSeatDesk] = React.useState<{ deskId: number; roomName: string } | null>(null);
+  const myDeskRef = React.useRef(myDesk);
+  myDeskRef.current = myDesk;
+  const renderDeskRef = React.useRef<() => void>(() => undefined);
+  React.useEffect(() => {
+    renderDeskRef.current();
+  }, [myDesk, name]);
   const avatarRef = React.useRef(avatar);
   avatarRef.current = avatar;
   const nameRef = React.useRef(name);
@@ -408,6 +419,50 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
         decorC.addChild(below);
         if (above) canopyC.addChild(above);
       }
+      // "Mi escritorio": the claimed desk is repainted on top with its owner's
+      // decoration, chair color and a name tag.
+      const myDeskC = new Container();
+      decorC.addChild(myDeskC);
+      const desksById = new Map(map.decor.filter((d) => d.type === "desk").map((d) => [d.id, d]));
+      const renderMyDesk = () => {
+        for (const ch of myDeskC.removeChildren()) ch.destroy({ children: true });
+        const custom = myDeskRef.current;
+        const desk = custom ? desksById.get(custom.deskId) : undefined;
+        if (!custom || !desk) return;
+        const facing = desk.props.facing === "up" ? "up" : "down";
+        const glow = desk.props.color && /^#[0-9a-f]{6}$/i.test(desk.props.color) ? desk.props.color : "#18d3b8";
+        const tex = Texture.from(gridToCanvas(paintDesk(custom, facing, glow)));
+        tex.source.scaleMode = "nearest";
+        const sprite = new Sprite(tex);
+        sprite.position.set(desk.x, desk.y);
+        sprite.width = desk.w;
+        sprite.height = desk.h;
+        // Chair recolored to the owner's choice (chair is one tile toward the person).
+        const chairY = facing === "down" ? desk.y - desk.h : desk.y + desk.h;
+        const chair = new Graphics();
+        const cw = 22;
+        const cx = desk.x + (desk.w - cw) / 2;
+        chair.roundRect(cx, chairY + 9, cw, 14, 5).fill({ color: 0x4a4a55 }).stroke({ color: 0x2c2c33, width: 1 });
+        chair.roundRect(cx + 3, chairY + 12, cw - 6, 8, 3).fill({ color: parseInt(custom.chairColor.slice(1), 16) });
+        // Name tag on the edge facing the chair.
+        const tag = new Text({
+          text: nameRef.current.split(" ")[0],
+          style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 9, fontWeight: "700", fill: 0xffffff },
+          resolution: 2,
+        });
+        const tagW = tag.width + 10;
+        const tagBg = new Graphics()
+          .roundRect(0, 0, tagW, 13, 6)
+          .fill({ color: 0x2c2c33 })
+          .stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
+        const tagC = new Container();
+        tagC.addChild(tagBg, tag);
+        tag.position.set(5, 1);
+        tagC.position.set(desk.x + desk.w / 2 - tagW / 2, facing === "down" ? desk.y - 6 : desk.y + desk.h - 7);
+        myDeskC.addChild(chair, sprite, tagC);
+      };
+      renderDeskRef.current = renderMyDesk;
+      renderMyDesk();
 
       const groundChunks = buildLayer(map, map.ground, groundC);
       const wallChunks = buildLayer(map, map.walls, objectC);
@@ -562,6 +617,7 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
       let activityUntil = 0;
       let beforeActivity = { x: 0, y: 0 };
       let lastHintKey = "";
+      let lastSeatDesk: number | null = null;
 
       // Debug overlay: collisions (red) + zones (blue).
       const overlay = new Graphics();
@@ -584,6 +640,12 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
         x: map.spawn.x - BODY_W / 2,
         y: map.spawn.y - BODY_H / 2,
       };
+      // ?debug only: jump to a point (center of the avatar, in map px).
+      if (debug)
+        (window as unknown as { qTeleport?: (x: number, y: number) => void }).qTeleport = (x, y) => {
+          pos.x = x - BODY_W / 2;
+          pos.y = y - BODY_H / 2;
+        };
       const cam = { x: 0, y: 0 };
       let zoom = 1;
       const remotes = new Map<string, Remote>();
@@ -718,6 +780,12 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           if (key !== lastHintKey) {
             lastHintKey = key;
             setHint(next);
+          }
+          const deskId = activity?.deskId ?? null;
+          if (deskId !== lastSeatDesk) {
+            lastSeatDesk = deskId;
+            const z = zoneAt(pos.x + BODY_W / 2, pos.y + BODY_H / 2, map.zones);
+            setSeatDesk(deskId === null ? null : { deskId, roomName: z?.label ?? "" });
           }
         }
         local.c.position.set(Math.round(pos.x), Math.round(pos.y));
@@ -873,6 +941,22 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           {hud.zone === "—" ? "Pasillo" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
         </span>
       </div>
+      {seatDesk && (
+        <button
+          type="button"
+          className="q-panel q-hint q-hint--desk"
+          onClick={() =>
+            onDeskAction(
+              myDesk?.deskId === seatDesk.deskId
+                ? { type: "edit", deskId: seatDesk.deskId, roomName: seatDesk.roomName }
+                : { type: "claim", deskId: seatDesk.deskId, roomName: seatDesk.roomName },
+            )
+          }
+        >
+          <kbd aria-hidden="true">{myDesk?.deskId === seatDesk.deskId ? "✎" : "★"}</kbd>
+          {myDesk?.deskId === seatDesk.deskId ? "Personalizar mi escritorio" : "Hacer mi escritorio"}
+        </button>
+      )}
       {hint && (
         <button
           type="button"
