@@ -12,7 +12,9 @@ import { nearestObject, type SmartObject } from "./objects";
 import { makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
 import { drawDecor, drawFloor } from "./decor";
 import { avatarKey, randomAvatar, type AvatarConfig } from "../avatar/config";
-import { AVATAR_H, gridToCanvas, paintAvatar, type Facing, type Frame } from "../avatar/render";
+import { AVATAR_H, gridToCanvas, paintAvatar, type Facing, type Frame, type Pose } from "../avatar/render";
+import { paintPet } from "../avatar/pets";
+import { ANIM_BY_ACTIVITY, buildInteractables, nearestInteractable, type Interactable } from "./interactions";
 import type { SpatialAudio } from "./spatialAudio";
 import type { NetHandle } from "./useColyseus";
 
@@ -49,6 +51,7 @@ interface Hud {
 
 interface Remote {
   c: Container;
+  pet: Container;
   label: Text;
   ring: Graphics;
   view: AvatarView;
@@ -128,25 +131,47 @@ const FACING_BY_DIR: Record<string, Facing> = { down: "front", up: "back", left:
 const WALK_CYCLE: Frame[] = [1, 0, 2, 0];
 const textureCache = new Map<string, Texture>();
 
-function avatarTexture(cfg: AvatarConfig, facing: Facing, frame: Frame): Texture {
-  const key = `${avatarKey(cfg)}|${facing}|${frame}`;
+function avatarTexture(cfg: AvatarConfig, facing: Facing, frame: Frame, pose: Pose = "stand"): Texture {
+  const key = `${avatarKey(cfg)}|${facing}|${frame}|${pose}`;
   let tex = textureCache.get(key);
   if (!tex) {
-    tex = Texture.from(gridToCanvas(paintAvatar(cfg, facing, frame)));
+    tex = Texture.from(gridToCanvas(paintAvatar(cfg, facing, frame, pose)));
     tex.source.scaleMode = "nearest";
     textureCache.set(key, tex);
   }
   return tex;
 }
 
+function petTexture(cfg: AvatarConfig, left: boolean, frame: 0 | 1): Texture {
+  const key = `pet|${cfg.pet}|${cfg.petColor}|${left}|${frame}`;
+  let tex = textureCache.get(key);
+  if (!tex) {
+    tex = Texture.from(gridToCanvas(paintPet(cfg.pet, cfg.petColor, left, frame)));
+    tex.source.scaleMode = "nearest";
+    textureCache.set(key, tex);
+  }
+  return tex;
+}
+
+/** Network anim -> body pose; unknown values fall back to standing. */
+function poseFromAnim(anim: string): Pose {
+  return anim === "sit" || anim === "stretch" || anim === "drink" ? anim : "stand";
+}
+const BUBBLE: Partial<Record<Pose, string>> = { drink: "☕", stretch: "💪" };
+const DIR_VEC: Record<string, [number, number]> = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] };
+
 interface AvatarView {
   c: Container;
   label: Text;
   nub: Graphics;
   ring: Graphics;
-  /** dir = down/up/left/right; walking animates the legs. */
-  setPose(dir: string, walking: boolean, nowMs: number): void;
+  /** Pet sprite; lives in the avatar layer but outside `c` so it can trail behind. */
+  pet: Container;
+  /** dir = down/up/left/right; walking animates the legs; pose comes from furniture. */
+  setPose(dir: string, walking: boolean, nowMs: number, pose?: Pose): void;
   setConfig(cfg: AvatarConfig): void;
+  /** Moves the pet toward a spot next to/behind the owner's feet. */
+  followPet(feetX: number, feetY: number, dir: string, idle: boolean, dt: number, nowMs: number): void;
 }
 
 function makeAvatar(cfg: AvatarConfig, name: string): AvatarView {
@@ -181,27 +206,87 @@ function makeAvatar(cfg: AvatarConfig, name: string): AvatarView {
   requestAnimationFrame(fitPill);
   void document.fonts?.ready.then(fitPill);
   pillFitters.set(label, fitPill);
-  c.addChild(shadow, ring, sprite, nub, pill, label);
+  // Pixel speech bubble for activities (☕ drinking, 💪 stretching).
+  const bubble = new Container();
+  const bubbleBg = new Graphics()
+    .roundRect(-13, -24, 26, 20, 7)
+    .fill({ color: 0xffffff })
+    .stroke({ color: 0x2c2c33, width: 1.5 })
+    .poly([-4, -5, 4, -5, 0, 1])
+    .fill({ color: 0xffffff });
+  const bubbleIcon = new Text({ text: "", style: { fontSize: 12 }, resolution: 2 });
+  bubbleIcon.anchor.set(0.5, 0.5);
+  bubbleIcon.position.set(0, -14);
+  bubble.addChild(bubbleBg, bubbleIcon);
+  bubble.position.set(BODY_W / 2, labelY - 22);
+  bubble.visible = false;
+  c.addChild(shadow, ring, sprite, nub, pill, label, bubble);
+
+  const pet = new Container();
+  const petSprite = new Sprite(petTexture(cfg, false, 0));
+  petSprite.anchor.set(0.5, 1);
+  petSprite.scale.set(SPRITE_SCALE);
+  const petShadow = new Graphics().ellipse(0, -1, 9, 3).fill({ color: 0x2c2c33, alpha: 0.18 });
+  pet.addChild(petShadow, petSprite);
+  pet.visible = cfg.pet !== "ninguna";
+  const petPos = { x: NaN, y: NaN, left: false, shown: "" };
 
   let current = cfg;
-  let shown = "front|0";
+  let shown = "front|0|stand";
   return {
     c,
     label,
     nub,
     ring,
-    setPose(dir, walking, nowMs) {
+    pet,
+    setPose(dir, walking, nowMs, pose = "stand") {
       const facing = FACING_BY_DIR[dir] ?? "front";
-      const frame = walking ? WALK_CYCLE[Math.floor(nowMs / 140) % WALK_CYCLE.length] : 0;
-      const key = `${facing}|${frame}`;
+      const frame: Frame =
+        pose === "stretch" ? (Math.floor(nowMs / 600) % 2 ? 1 : 0) : walking ? WALK_CYCLE[Math.floor(nowMs / 140) % WALK_CYCLE.length] : 0;
+      const icon = BUBBLE[pose] ?? "";
+      bubble.visible = icon !== "";
+      if (icon && bubbleIcon.text !== icon) bubbleIcon.text = icon;
+      const key = `${facing}|${frame}|${pose}`;
       if (key === shown) return;
       shown = key;
-      sprite.texture = avatarTexture(current, facing, frame);
+      sprite.texture = avatarTexture(current, facing, frame, pose);
     },
     setConfig(next) {
       if (avatarKey(next) === avatarKey(current)) return;
       current = next;
       shown = "";
+      petPos.shown = "";
+      pet.visible = next.pet !== "ninguna";
+    },
+    followPet(feetX, feetY, dir, idle, dt, nowMs) {
+      if (!pet.visible) return;
+      if (Number.isNaN(petPos.x)) {
+        petPos.x = feetX + 22;
+        petPos.y = feetY;
+      }
+      // Trail behind while walking; sit beside the owner when idle.
+      const [vx, vy] = DIR_VEC[dir] ?? [0, 1];
+      const tx = idle ? feetX + 22 : feetX - vx * 30 + vy * 14;
+      const ty = idle ? feetY + 2 : feetY - vy * 24 + Math.abs(vx) * 4;
+      const dx = tx - petPos.x;
+      const dy = ty - petPos.y;
+      const dist = Math.hypot(dx, dy);
+      let moving = false;
+      if (dist > 3) {
+        const step = Math.min(dist, Math.max(90, dist * 5) * dt);
+        petPos.x += (dx / dist) * step;
+        petPos.y += (dy / dist) * step;
+        moving = step > 0.4;
+        if (Math.abs(dx) > 1) petPos.left = dx < 0;
+      }
+      const frame: 0 | 1 = moving && Math.floor(nowMs / 160) % 2 ? 1 : 0;
+      const key = `${petPos.left}|${frame}`;
+      if (key !== petPos.shown) {
+        petPos.shown = key;
+        petSprite.texture = petTexture(current, petPos.left, frame);
+      }
+      pet.position.set(Math.round(petPos.x), Math.round(petPos.y));
+      pet.zIndex = pet.position.y - BODY_H;
     },
   };
 }
@@ -228,6 +313,9 @@ interface ObjMarker {
 
 export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; avatar: AvatarConfig; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
+  /** Set by the E key or the hint button; consumed by the game loop. */
+  const interactRef = React.useRef(false);
+  const [hint, setHint] = React.useState<{ label: string; active: boolean } | null>(null);
   const avatarRef = React.useRef(avatar);
   avatarRef.current = avatar;
   const nameRef = React.useRef(name);
@@ -263,6 +351,13 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
     const keys = new Set<string>();
 
     const onKey = (down: boolean) => (e: KeyboardEvent) => {
+      // Typing in the chat or a form must not move the avatar.
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.code === "KeyE") {
+        if (down && !e.repeat) interactRef.current = true;
+        return;
+      }
       if (!(e.code in KEYS)) return;
       e.preventDefault();
       if (down) keys.add(e.code);
@@ -461,7 +556,12 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
 
       avatarC.sortableChildren = true;
       const local = makeAvatar(avatarRef.current, nameRef.current);
-      avatarC.addChild(local.c);
+      avatarC.addChild(local.c, local.pet);
+      const interactables = buildInteractables(map.decor, map.tile);
+      let activity: Interactable | null = null;
+      let activityUntil = 0;
+      let beforeActivity = { x: 0, y: 0 };
+      let lastHintKey = "";
 
       // Debug overlay: collisions (red) + zones (blue).
       const overlay = new Graphics();
@@ -543,7 +643,32 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           vy += KEYS[k].y;
         }
         const moving = vx !== 0 || vy !== 0;
-        if (moving) {
+        const nowMs = performance.now();
+        // Furniture: E (or the hint button) uses the nearest item or stands up;
+        // moving also gets up. Drinks end by themselves after a few seconds.
+        const stopActivity = () => {
+          if (!activity) return;
+          activity = null;
+          pos.x = beforeActivity.x;
+          pos.y = beforeActivity.y;
+        };
+        if (activity && (moving || (activityUntil && nowMs > activityUntil))) stopActivity();
+        if (interactRef.current) {
+          interactRef.current = false;
+          if (activity) stopActivity();
+          else {
+            const it = nearestInteractable(interactables, pos.x + BODY_W / 2, pos.y + BODY_H, 44);
+            if (it) {
+              activity = it;
+              activityUntil = it.activity === "drink" ? nowMs + 4000 : 0;
+              beforeActivity = { x: pos.x, y: pos.y };
+              pos.x = it.x - BODY_W / 2;
+              pos.y = it.y - BODY_H;
+              dir = it.dir;
+            }
+          }
+        }
+        if (moving && !activity) {
           const len = Math.hypot(vx, vy);
           // Colisión: estáticas del mapa + muros dinámicos (admin-added).
           // Ventanas y puertas NO bloquean movimiento.
@@ -575,11 +700,26 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           anim = "walk";
           drawNub(local.nub);
         } else {
-          anim = "idle";
+          anim = activity ? ANIM_BY_ACTIVITY[activity.activity] : "idle";
         }
         if (local.label.text !== nameRef.current) setLabel(local.label, nameRef.current);
         local.setConfig(avatarRef.current);
-        local.setPose(dir, anim === "walk", performance.now());
+        local.setPose(dir, anim === "walk", nowMs, poseFromAnim(anim));
+        local.followPet(pos.x + BODY_W / 2, pos.y + BODY_H, dir, anim !== "walk", dt, nowMs);
+        // Hint for the nearest usable furniture (or how to get up).
+        {
+          const near = activity ? null : nearestInteractable(interactables, pos.x + BODY_W / 2, pos.y + BODY_H, 44);
+          const next = activity
+            ? { label: activity.activity === "sit" ? "Levantarse" : "Terminar", active: true }
+            : near
+              ? { label: near.label, active: false }
+              : null;
+          const key = next ? `${next.label}|${next.active}` : "";
+          if (key !== lastHintKey) {
+            lastHintKey = key;
+            setHint(next);
+          }
+        }
         local.c.position.set(Math.round(pos.x), Math.round(pos.y));
         local.c.zIndex = local.c.position.y;
 
@@ -608,9 +748,9 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
             if (!r) {
               // Until avatars sync over the network, others get a stable look from their name.
               const built = makeAvatar(randomAvatar(p.name), p.name);
-              r = { c: built.c, label: built.label, ring: built.ring, view: built, cx: p.x, cy: p.y, connected: false };
+              r = { c: built.c, pet: built.pet, label: built.label, ring: built.ring, view: built, cx: p.x, cy: p.y, connected: false };
               paintRing(r.ring, false);
-              avatarC.addChild(r.c);
+              avatarC.addChild(r.c, r.pet);
               remotes.set(id, r);
             }
             if (r.label.text !== p.name) setLabel(r.label, p.name);
@@ -618,7 +758,8 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
             r.cx += (p.x - r.cx) * k;
             r.cy += (p.y - r.cy) * k;
             r.c.position.set(Math.round(r.cx), Math.round(r.cy));
-            r.view.setPose(p.dir, p.anim === "walk", now);
+            r.view.setPose(p.dir, p.anim === "walk", now, poseFromAnim(p.anim));
+            r.view.followPet(r.cx + BODY_W / 2, r.cy + BODY_H, p.dir, p.anim !== "walk", dt, now);
             r.c.zIndex = r.c.position.y;
 
             const pz = map.zones.find((z) => z.id === p.zoneId);
@@ -648,8 +789,9 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           });
           for (const [id, r] of remotes) {
             if (!room.state.players.get(id)) {
-              avatarC.removeChild(r.c);
+              avatarC.removeChild(r.c, r.pet);
               r.c.destroy(true);
+              r.pet.destroy(true);
               remotes.delete(id);
               audioRef.current?.detach(id);
             }
@@ -731,6 +873,18 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           {hud.zone === "—" ? "Pasillo" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
         </span>
       </div>
+      {hint && (
+        <button
+          type="button"
+          className={`q-panel q-hint${hint.active ? " q-hint--active" : ""}`}
+          onClick={() => {
+            interactRef.current = true;
+          }}
+        >
+          <kbd>E</kbd>
+          {hint.label}
+        </button>
+      )}
       {debug && (
         <div className="q-debug">
           {hud.fps} fps · ({hud.x},{hud.y}) · {hud.dir}/{hud.anim} · zona: {hud.zone} · cerca: {hud.near} · chunks: {hud.chunks} · zoom {hud.zoom.toFixed(2)}×

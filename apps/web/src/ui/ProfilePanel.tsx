@@ -1,5 +1,6 @@
 import React from "react";
-import { AvatarCanvas } from "../avatar/AvatarCanvas";
+import { AvatarCanvas, PetCanvas } from "../avatar/AvatarCanvas";
+import { PET_DEFAULT_COLOR } from "../avatar/pets";
 import {
   ACCESSORIES,
   BODIES,
@@ -11,6 +12,10 @@ import {
   HAIR_COLORS,
   HAIR_STYLES,
   HEIGHTS,
+  PETS,
+  PET_GROUPS,
+  PET_COLORS,
+  toggleAccessory,
   SHOE_COLORS,
   SKIN_TONES,
   TOPS,
@@ -20,12 +25,13 @@ import {
 } from "../avatar/config";
 import type { Facing } from "../avatar/render";
 
-type Tab = "cuerpo" | "cabello" | "ropa" | "accesorios";
+type Tab = "cuerpo" | "cabello" | "ropa" | "accesorios" | "mascota";
 const TABS: { id: Tab; label: string }[] = [
   { id: "cuerpo", label: "Cuerpo" },
   { id: "cabello", label: "Cabello" },
   { id: "ropa", label: "Ropa" },
   { id: "accesorios", label: "Accesorios" },
+  { id: "mascota", label: "Mascota" },
 ];
 const FACINGS: Facing[] = ["front", "right", "back", "left"];
 const FACING_LABEL: Record<Facing, string> = {
@@ -184,6 +190,11 @@ export function ProfilePanel({ name, value, firstTime = false, onPreview, onSave
           <div className="q-profile__aura" aria-hidden="true" />
           <div className="q-profile__avatar">
             <AvatarCanvas cfg={cfg} facing={facing} scale={10} label={`Avatar de ${name}, ${FACING_LABEL[facing]}`} />
+            {cfg.pet !== "ninguna" && (
+              <span className="q-profile__pet">
+                <PetCanvas pet={cfg.pet} color={cfg.petColor} scale={5} label={`Mascota: ${cfg.pet}`} />
+              </span>
+            )}
           </div>
           <div className="q-profile__turn">
             <button type="button" className="q-btn q-btn--icon" onClick={() => turn(-1)} aria-label="Girar a la izquierda">
@@ -307,16 +318,81 @@ export function ProfilePanel({ name, value, firstTime = false, onPreview, onSave
             )}
 
             {tab === "accesorios" && (
-              <Field id="f-acc" label="Accesorio">
-                <Thumbs
-                  id="f-acc"
-                  head
-                  options={ACCESSORIES}
-                  value={cfg.accessory}
-                  render={(accessory) => ({ ...cfg, accessory })}
-                  onChange={(accessory) => update({ accessory })}
-                />
+              <Field id="f-acc" label="Accesorios · elige varios">
+                <div className="q-thumbs" role="group" aria-labelledby="f-acc">
+                  {ACCESSORIES.map((o) => {
+                    const on = cfg.accessories.includes(o.id);
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={on}
+                        className="q-thumb"
+                        onClick={() => update({ accessories: toggleAccessory(cfg.accessories, o.id) })}
+                      >
+                        <AvatarCanvas cfg={{ ...cfg, accessories: [o.id] }} scale={3} cropTop={0} cropRows={20} />
+                        <span>{o.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="q-small q-muted" style={{ margin: "10px 0 0" }}>
+                  Gorra y gorro, o gafas y gafas de sol, se reemplazan entre sí.
+                </p>
               </Field>
+            )}
+
+            {tab === "mascota" && (
+              <>
+                <Field id="f-pet" label="Te acompaña por la oficina">
+                  <div className="q-thumbs" role="radiogroup" aria-labelledby="f-pet">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={cfg.pet === "ninguna"}
+                      className="q-thumb"
+                      onClick={() => update({ pet: "ninguna" })}
+                    >
+                      <span style={{ height: 48, display: "grid", placeItems: "center", fontSize: 20 }} aria-hidden="true">
+                        ∅
+                      </span>
+                      <span>Sin mascota</span>
+                    </button>
+                  </div>
+                </Field>
+                {PET_GROUPS.map((group) => (
+                  <Field key={group.label} id={`f-pet-${group.label}`} label={group.label}>
+                    <div className="q-thumbs" role="radiogroup" aria-labelledby={`f-pet-${group.label}`}>
+                      {group.ids.map((id) => {
+                        const o = PETS.find((p) => p.id === id)!;
+                        const color = cfg.pet === id ? cfg.petColor : PET_DEFAULT_COLOR[id as Exclude<typeof id, "ninguna">];
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            role="radio"
+                            aria-checked={cfg.pet === id}
+                            className="q-thumb"
+                            onClick={() =>
+                              cfg.pet !== id &&
+                              update({ pet: id, petColor: PET_DEFAULT_COLOR[id as Exclude<typeof id, "ninguna">] })
+                            }
+                          >
+                            <PetCanvas pet={id} color={color} scale={3} />
+                            <span>{o.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                ))}
+                {cfg.pet !== "ninguna" && (
+                  <Field id="f-pet-color" label="Color">
+                    <Swatches id="f-pet-color" colors={PET_COLORS} value={cfg.petColor} onChange={(petColor) => update({ petColor })} />
+                  </Field>
+                )}
+              </>
             )}
           </div>
 
