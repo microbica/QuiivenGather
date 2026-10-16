@@ -12,6 +12,7 @@ import {
 } from "@quiiven/protocol";
 import {
   clampMove,
+  sanitizeAvatarMsg,
   sanitizeChat,
   sanitizeName,
   sanitizeZone,
@@ -50,6 +51,24 @@ interface MoveMsg {
 
 interface ChatMsg {
   text?: unknown;
+}
+
+interface AvatarMsg {
+  body?: unknown;
+  height?: unknown;
+  build?: unknown;
+  skin?: unknown;
+  hair?: unknown;
+  hairColor?: unknown;
+  facialHair?: unknown;
+  top?: unknown;
+  topColor?: unknown;
+  bottom?: unknown;
+  bottomColor?: unknown;
+  shoesColor?: unknown;
+  pet?: unknown;
+  petColor?: unknown;
+  accessories?: unknown;
 }
 
 interface SignalMsg {
@@ -123,6 +142,11 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("chat", (client, msg: ChatMsg) =>
       this.handleChat(client, msg),
     );
+    // Avatar visible: el cliente publica su config y se propaga validada.
+    this.onMessage("avatar", (client, msg: AvatarMsg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (p) this.applyAvatar(p, msg);
+    });
     // Fase 3: relay de señalización WebRTC (SDP/ICE). Solo metadata por TCP;
     // nunca media. El servidor no inspecciona el contenido.
     this.onMessage("rtc-signal", (client, msg: SignalMsg) =>
@@ -195,7 +219,7 @@ export class GameRoom extends Room<GameState> {
 
   async onJoin(
     client: Client,
-    options: { name?: string; hidden?: boolean } = {},
+    options: { name?: string; hidden?: boolean; avatar?: unknown } = {},
     auth: { googleSub?: string | null; name?: string; email?: string; role?: string } = {},
   ) {
     // Conexión de administración (página #/admin): sin avatar en la sala,
@@ -207,6 +231,8 @@ export class GameRoom extends Room<GameState> {
     }
     const p = new Player();
     p.name = sanitizeName(auth?.name ?? options?.name, `user-${client.sessionId.slice(0, 4)}`);
+    // Avatar visible desde el primer frame (además del mensaje "avatar" en cambios).
+    this.applyAvatar(p, options?.avatar);
     // Restaurar estado persistido (DB) si el usuario está autenticado.
     const email = auth?.email?.toLowerCase();
     let saved: Awaited<ReturnType<typeof getPlayerState>> = null;
@@ -241,6 +267,27 @@ export class GameRoom extends Room<GameState> {
       this.saveTimers.set(client.sessionId, timer);
     }
     console.log(`[game] join ${client.sessionId} as ${p.name}${saved ? " (restored)" : ""}`);
+  }
+
+  /** Escribe un avatar validado en el jugador (join + mensaje "avatar"). */
+  private applyAvatar(p: Player, raw: unknown) {
+    const a = sanitizeAvatarMsg(raw);
+    p.body = a.body;
+    p.height = a.height;
+    p.build = a.build;
+    p.skin = a.skin;
+    p.hair = a.hair;
+    p.hairColor = a.hairColor;
+    p.facialHair = a.facialHair;
+    p.top = a.top;
+    p.topColor = a.topColor;
+    p.bottom = a.bottom;
+    p.bottomColor = a.bottomColor;
+    p.shoesColor = a.shoesColor;
+    p.pet = a.pet;
+    p.petColor = a.petColor;
+    p.accessories.splice(0, p.accessories.length);
+    for (const acc of a.accessories) p.accessories.push(acc);
   }
 
   private async persistPlayer(p: Player, email: string): Promise<void> {

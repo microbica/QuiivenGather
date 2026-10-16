@@ -1,6 +1,8 @@
 import React from "react";
 import { GameCanvas } from "./game/GameCanvas";
+import { useCalendarEvents } from "./game/useCalendarEvents";
 import { useColyseusRoom } from "./game/useColyseus";
+import { useMeetingReminders } from "./game/useMeetingReminders";
 import { useMeshVoice } from "./game/useMeshVoice";
 import type { SmartObject } from "./game/objects";
 import { Sidebar } from "./ui/Sidebar";
@@ -10,8 +12,8 @@ import { GooglePanel } from "./ui/GooglePanel";
 import { AdminPanel } from "./ui/AdminPanel";
 import { AdminPage } from "./ui/AdminPage";
 import { ProfilePanel } from "./ui/ProfilePanel";
+import { ReminderToasts } from "./ui/ReminderToasts";
 import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
-import type { CalendarEvent } from "./api/google";
 import { getStatus, startOAuth, type GoogleStatus } from "./api/google";
 
 function displayName(email: string): string {
@@ -101,7 +103,12 @@ function LoginGate({
 function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   const [nearby, setNearby] = React.useState<string[]>([]);
   const [activeObject, setActiveObject] = React.useState<SmartObject | null>(null);
-  const [calendarMeets, setCalendarMeets] = React.useState<CalendarEvent[]>([]);
+  // Calendario a nivel de app (panel abierto o no) + avisos 15'/5'/ahora.
+  const { events: calendarEvents, refreshEvents, syncing: calSyncing, lastSyncAt: calSyncAt } = useCalendarEvents();
+  const reminders = useMeetingReminders(calendarEvents);
+  const refreshCalendar = React.useCallback(() => {
+    void refreshEvents();
+  }, [refreshEvents]);
   const [adminMode, setAdminMode] = React.useState(false);
   // Saved avatar, or a starting suggestion seeded by the name on first visit.
   const [firstVisit] = React.useState(() => loadAvatar() === null);
@@ -121,8 +128,13 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
-  const { status, roster, messages, sendChat, net, meetUrl, objects } = useColyseusRoom(name);
+  const { status, roster, messages, sendChat, net, meetUrl, objects } = useColyseusRoom(name, { avatar });
   const voice = useMeshVoice(net);
+
+  // Publica el avatar real para que los demás vean tu skin (también al guardarlo).
+  React.useEffect(() => {
+    net.sendAvatar(avatar);
+  }, [avatar, net]);
 
   const onNearby = React.useCallback((ids: string[]) => setNearby(ids), []);
   const onObject = React.useCallback((obj: SmartObject | null) => setActiveObject(obj), []);
@@ -148,7 +160,17 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   return (
     <div style={{ position: "relative", height: "100%" }}>
       <aside className="q-rail">
-        {calendarOpen && <GooglePanel net={net} onEvents={setCalendarMeets} />}
+        {calendarOpen && (
+          <GooglePanel
+            events={reminders.upcoming}
+            now={reminders.now}
+            syncing={calSyncing}
+            lastSyncAt={calSyncAt}
+            notifyPermission={reminders.permission}
+            onEnableNotifications={() => void reminders.requestPermission()}
+            onChanged={refreshCalendar}
+          />
+        )}
         <Sidebar
         roster={roster}
         nearby={nearby}
@@ -188,6 +210,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         </button>
       )}
       <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} />
+      <ReminderToasts toasts={reminders.toasts} onDismiss={reminders.dismiss} />
       {profileOpen && (
         <ProfilePanel
           name={name}
@@ -202,7 +225,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         <SmartObjectModal
           obj={activeObject}
           liveMeetUrl={meetUrl}
-          calendarMeets={calendarMeets}
+          calendarMeets={reminders.upcoming}
           onPublishMeet={onPublishMeet}
           onClose={() => setActiveObject(null)}
         />

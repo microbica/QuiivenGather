@@ -1,4 +1,4 @@
-import { Schema, MapSchema, type } from "@colyseus/schema";
+import { ArraySchema, Schema, MapSchema, type } from "@colyseus/schema";
 
 // Shared constants: single source of truth for client prediction,
 // server validation and map bounds (demo.tmj is 100x60 @32px, see scripts/gen-map.mjs).
@@ -24,6 +24,25 @@ export class Player extends Schema {
   @type("string") zoneId = "";
   /** Color del avatar (asignado por el server al unirse, estable por usuario). */
   @type("number") color = 0;
+  /**
+   * Avatar visible (skin, ropa, mascota): lo publica el cliente y el servidor
+   * lo valida. "" = sin definir (el cliente usa un fallback determinista).
+   */
+  @type("string") body = "";
+  @type("string") height = "";
+  @type("string") build = "";
+  @type("string") skin = "";
+  @type("string") hair = "";
+  @type("string") hairColor = "";
+  @type("string") facialHair = "";
+  @type("string") top = "";
+  @type("string") topColor = "";
+  @type("string") bottom = "";
+  @type("string") bottomColor = "";
+  @type("string") shoesColor = "";
+  @type("string") pet = "";
+  @type("string") petColor = "";
+  @type(["string"]) accessories = new ArraySchema<string>();
 }
 
 /**

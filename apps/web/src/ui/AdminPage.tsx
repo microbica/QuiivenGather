@@ -1,5 +1,7 @@
 import React from "react";
+import { useCalendarEvents } from "../game/useCalendarEvents";
 import { useColyseusRoom } from "../game/useColyseus";
+import { isExpired } from "../calendar/eventTime";
 import { GooglePanel } from "./GooglePanel";
 import { UsersAdmin } from "./UsersAdmin";
 import { listPlayers, type AdminPlayerRow } from "../api/admin";
@@ -28,6 +30,7 @@ export function AdminPage({
   onBack: () => void;
 }) {
   const { status, net, meetUrl } = useColyseusRoom(name, { hidden: true });
+  const { events: adminEvents, refreshEvents: refreshAdminEvents, syncing: adminSyncing, lastSyncAt: adminSyncAt } = useCalendarEvents();
   const [players, setPlayers] = React.useState<AdminPlayerRow[]>([]);
   const [playersErr, setPlayersErr] = React.useState("");
   const [playersBusy, setPlayersBusy] = React.useState(false);
@@ -83,11 +86,19 @@ export function AdminPage({
             </>
           ) : (
             <p className="q-small q-muted" style={{ margin: 0 }}>
-              Sin reunión publicada. Publícala desde “Mi día” o entrando una URL de Meet.
+              Sin reunión publicada. Publícala desde una TV del mapa o entrando una URL de Meet.
             </p>
           )}
         </section>
-        <GooglePanel net={net} />
+        <GooglePanel
+          events={adminEvents.filter((e) => !isExpired(e, Date.now()))}
+          now={Date.now()}
+          syncing={adminSyncing}
+          lastSyncAt={adminSyncAt}
+          notifyPermission="unsupported"
+          onEnableNotifications={() => undefined}
+          onChanged={() => void refreshAdminEvents()}
+        />
         <section className="q-panel" aria-label="Estado guardado de jugadores">
           <h3 className="q-eyebrow">
             <span>Jugadores guardados · {players.length}</span>

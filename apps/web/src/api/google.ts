@@ -13,6 +13,8 @@ export interface CalendarEvent {
   id: string;
   summary: string;
   start: string;
+  /** Fin del evento (ISO o fecha); "" si Google no lo trae. */
+  end: string;
   htmlLink: string;
   hangoutLink: string;
 }

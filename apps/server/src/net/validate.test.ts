@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAP_H, MAP_W, PLAYER_H, PLAYER_W } from "@quiiven/protocol";
 import {
   clampMove,
+  sanitizeAvatarMsg,
   sanitizeChat,
   sanitizeName,
   sanitizeZone,
@@ -106,5 +107,48 @@ describe("objetos (admin)", () => {
     expect(validRotation(46)).toBe(60);
     expect(validRotation(359)).toBe(0);
     expect(validRotation("nope")).toBe(0);
+  });
+});
+
+describe("avatar visible", () => {
+  it("sanitizeAvatarMsg acepta un avatar válido", () => {
+    const a = sanitizeAvatarMsg({
+      body: "femenino",
+      skin: "#C98A5C",
+      hair: "melena",
+      hairColor: "#4a2e22",
+      top: "camiseta",
+      topColor: "#18d3b8",
+      pet: "gato",
+      petColor: "#f4f4f6",
+      accessories: ["gorra", "gafas"],
+    });
+    expect(a.body).toBe("femenino");
+    expect(a.skin).toBe("#c98a5c");
+    expect(a.pet).toBe("gato");
+    expect(a.accessories).toEqual(["gorra", "gafas"]);
+  });
+
+  it("sanitizeAvatarMsg rechaza valores desconocidos y basura", () => {
+    const a = sanitizeAvatarMsg({
+      body: "robot",
+      skin: "red",
+      hair: 42,
+      topColor: "#zzzzzz",
+      pet: "dragón",
+      accessories: ["gorra", "hack", "gorra", 7],
+    });
+    expect(a.body).toBe("");
+    expect(a.skin).toBe("");
+    expect(a.hair).toBe("");
+    expect(a.topColor).toBe("");
+    expect(a.pet).toBe("");
+    expect(a.accessories).toEqual(["gorra"]);
+  });
+
+  it("sanitizeAvatarMsg tolera no-objetos", () => {
+    const a = sanitizeAvatarMsg(undefined);
+    expect(a.body).toBe("");
+    expect(a.accessories).toEqual([]);
   });
 });

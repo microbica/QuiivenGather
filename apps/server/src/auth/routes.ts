@@ -173,6 +173,7 @@ export function googleRouter(): Router {
           id: string;
           summary?: string;
           start?: { dateTime?: string; date?: string };
+          end?: { dateTime?: string; date?: string };
           htmlLink?: string;
           hangoutLink?: string;
         }[];
@@ -182,6 +183,7 @@ export function googleRouter(): Router {
           id: e.id,
           summary: e.summary ?? "(sin título)",
           start: e.start?.dateTime ?? e.start?.date ?? "",
+          end: e.end?.dateTime ?? e.end?.date ?? "",
           htmlLink: e.htmlLink ?? "",
           hangoutLink: e.hangoutLink ?? "",
         })),

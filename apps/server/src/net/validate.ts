@@ -131,3 +131,79 @@ export function sanitizeName(name: unknown, fallback: string): string {
   const t = name.trim().slice(0, 24);
   return t.length > 0 ? t : fallback;
 }
+
+// Avatar catalog (mirrors apps/web avatar/config.ts). The server allowlists
+// every field so clients cannot inject garbage into everyone's synced state.
+const AVATAR_ENUMS: Record<string, readonly string[]> = {
+  body: ["femenino", "masculino"],
+  height: ["baja", "media", "alta"],
+  build: ["delgada", "media", "robusta"],
+  hair: ["calvo", "rapado", "corto", "crespo", "melena", "largo", "cola", "mono"],
+  facialHair: ["ninguna", "bigote", "barba"],
+  top: ["camiseta", "camisa", "buzo", "blusa", "vestido"],
+  bottom: ["pantalon", "jean", "falda", "short"],
+  pet: [
+    "ninguna", "perro", "gato", "conejo", "loro", "vaca", "caballo",
+    "cerdo", "oveja", "cabra", "pato", "gallina", "llama",
+  ],
+};
+const AVATAR_ACCESSORIES = [
+  "gafas", "gafas-sol", "audifonos", "gorra", "gorro", "bufanda", "lazo",
+] as const;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+export interface SanitizedAvatar {
+  body: string;
+  height: string;
+  build: string;
+  skin: string;
+  hair: string;
+  hairColor: string;
+  facialHair: string;
+  top: string;
+  topColor: string;
+  bottom: string;
+  bottomColor: string;
+  shoesColor: string;
+  pet: string;
+  petColor: string;
+  accessories: string[];
+}
+
+/** Allowlist a client-reported avatar; unknown/invalid values become "". */
+export function sanitizeAvatarMsg(raw: unknown): SanitizedAvatar {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const pick = (key: string): string => {
+    const v = r[key];
+    return typeof v === "string" && (AVATAR_ENUMS[key] as readonly string[]).includes(v) ? v : "";
+  };
+  const color = (key: string): string => {
+    const v = r[key];
+    return typeof v === "string" && HEX_COLOR.test(v) ? v.toLowerCase() : "";
+  };
+  const accessories = Array.isArray(r.accessories)
+    ? [...new Set(
+        r.accessories.filter(
+          (a): a is string =>
+            typeof a === "string" && (AVATAR_ACCESSORIES as readonly string[]).includes(a),
+        ),
+      )]
+    : [];
+  return {
+    body: pick("body"),
+    height: pick("height"),
+    build: pick("build"),
+    skin: color("skin"),
+    hair: pick("hair"),
+    hairColor: color("hairColor"),
+    facialHair: pick("facialHair"),
+    top: pick("top"),
+    topColor: color("topColor"),
+    bottom: pick("bottom"),
+    bottomColor: color("bottomColor"),
+    shoesColor: color("shoesColor"),
+    pet: pick("pet"),
+    petColor: color("petColor"),
+    accessories,
+  };
+}

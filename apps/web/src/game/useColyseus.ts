@@ -2,6 +2,7 @@ import React from "react";
 import { Client, getStateCallbacks } from "colyseus.js";
 import type { Room } from "colyseus.js";
 import type { GameState } from "@quiiven/protocol";
+import type { AvatarConfig } from "../avatar/config";
 import type { SmartObject } from "./objects";
 
 export interface MoveOut {
@@ -28,6 +29,8 @@ export interface NetHandle {
   getRoom(): Room<GameState> | null;
   sessionId: string | null;
   sendMove(m: MoveOut): void;
+  /** Publica el avatar visible (se valida en servidor y lo ven los demás). */
+  sendAvatar(cfg: AvatarConfig): void;
   sendSetMeet(url: string): void;
   sendObjMove(id: string, x: number, y: number): void;
   sendObjAdd(
@@ -73,8 +76,12 @@ const URL = import.meta.env.VITE_COLYSEUS_URL ?? "ws://localhost:2567";
  * ticker can poll it every frame without re-renders; roster/chat/status
  * go through React state for the DOM sidebar.
  */
-export function useColyseusRoom(name: string, opts?: { hidden?: boolean }) {
+export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?: AvatarConfig }) {
   const hidden = opts?.hidden === true;
+  // Avatar inicial para las opciones del join (sin re-conectar cuando cambie;
+  // los cambios viajan por sendAvatar).
+  const avatarRef = React.useRef(opts?.avatar);
+  avatarRef.current = opts?.avatar;
   const roomRef = React.useRef<Room<GameState> | null>(null);
   const [status, setStatus] = React.useState<NetStatus>("connecting");
   const [roster, setRoster] = React.useState<RosterEntry[]>([]);
@@ -87,6 +94,7 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean }) {
           getRoom: () => null,
           sessionId: null,
           sendMove: () => undefined,
+          sendAvatar: () => undefined,
           sendSetMeet: (url) => setMeetUrl(url),
           sendObjMove: (id, x, y) => setObjects((list) => list.map((o) => (o.id === id ? { ...o, x, y } : o))),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
@@ -116,6 +124,7 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean }) {
           getRoom: () => roomRef.current,
           sessionId: null,
           sendMove: (m) => roomRef.current?.send("move", m),
+          sendAvatar: (cfg) => roomRef.current?.send("avatar", { ...cfg }),
           sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
           sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
@@ -203,7 +212,9 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean }) {
     setStatus("connecting");
     setRoster([]);
     (async () => {
-      room = await new Client(URL).joinOrCreate<GameState>("game", hidden ? { name, hidden: true } : { name });
+      const base = hidden ? { name, hidden: true } : { name };
+      const initial = !hidden && avatarRef.current ? { avatar: { ...avatarRef.current } } : {};
+      room = await new Client(URL).joinOrCreate<GameState>("game", { ...base, ...initial });
       if (cancelled) {
         await room.leave();
         return;

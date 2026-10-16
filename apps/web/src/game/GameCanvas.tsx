@@ -1,6 +1,6 @@
 import React from "react";
 import { Application, Container, Graphics, Sprite, Text, Texture, FederatedPointerEvent } from "pixi.js";
-import { CLIENT_SPEED, PLAYER_H, PLAYER_W, TILE } from "@quiiven/protocol";
+import { CLIENT_SPEED, PLAYER_H, PLAYER_W, TILE, type Player } from "@quiiven/protocol";
 import {
   moveWithCollision,
   parseMap,
@@ -11,7 +11,7 @@ import { distancePx, isConnected } from "./proximity";
 import { nearestObject, type SmartObject } from "./objects";
 import { makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
 import { drawDecor, drawFloor } from "./decor";
-import { avatarKey, randomAvatar, type AvatarConfig } from "../avatar/config";
+import { avatarKey, sanitizeAvatar, type AvatarConfig } from "../avatar/config";
 import { AVATAR_H, gridToCanvas, paintAvatar, paintFace, type Facing, type Frame, type Pose } from "../avatar/render";
 import { paintPet } from "../avatar/pets";
 import { ANIM_BY_ACTIVITY, buildInteractables, nearestInteractable, type Interactable } from "./interactions";
@@ -58,6 +58,29 @@ interface Remote {
   cx: number;
   cy: number;
   connected: boolean;
+  /** Cache key of the last applied avatar (skin/clothes/pet sync). */
+  akey: string;
+}
+
+/** Real avatar published by a remote player; falls back to safe defaults. */
+function avatarFromPlayer(p: Player): AvatarConfig {
+  return sanitizeAvatar({
+    body: p.body,
+    height: p.height,
+    build: p.build,
+    skin: p.skin,
+    hair: p.hair,
+    hairColor: p.hairColor,
+    facialHair: p.facialHair,
+    top: p.top,
+    topColor: p.topColor,
+    bottom: p.bottom,
+    bottomColor: p.bottomColor,
+    shoesColor: p.shoesColor,
+    accessories: [...p.accessories],
+    pet: p.pet,
+    petColor: p.petColor,
+  });
 }
 
 // Brand palette for the map (manual Quiiven 2026): light neutral floor,
@@ -763,14 +786,24 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
             if (id === net.sessionId) return;
             let r = remotes.get(id);
             if (!r) {
-              // Until avatars sync over the network, others get a stable look from their name.
-              const built = makeAvatar(randomAvatar(p.name), p.name);
-              r = { c: built.c, pet: built.pet, label: built.label, ring: built.ring, view: built, cx: p.x, cy: p.y, connected: false };
+              // Skin real publicada por el jugador (con fallback seguro).
+              const cfg = avatarFromPlayer(p);
+              const built = makeAvatar(cfg, p.name);
+              r = { c: built.c, pet: built.pet, label: built.label, ring: built.ring, view: built, cx: p.x, cy: p.y, connected: false, akey: avatarKey(cfg) };
               paintRing(r.ring, false);
               avatarC.addChild(r.c, r.pet);
               remotes.set(id, r);
             }
             if (r.label.text !== p.name) setLabel(r.label, p.name);
+            // Si cambió su perfil (ropa, pelo, mascota), se refleja en vivo.
+            {
+              const cfg = avatarFromPlayer(p);
+              const key = avatarKey(cfg);
+              if (key !== r.akey) {
+                r.akey = key;
+                r.view.setConfig(cfg);
+              }
+            }
             const k = 1 - Math.exp(-12 * dt);
             r.cx += (p.x - r.cx) * k;
             r.cy += (p.y - r.cy) * k;
