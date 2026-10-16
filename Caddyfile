@@ -2,7 +2,8 @@
 # - Web (React) en /
 # - Colyseus en la MISMA URL base: matchmaking/REST por path y sockets por header
 #   Upgrade. El cliente usa wss://gather.quiiven.com SIN subpath: cero cambios
-#   de protocolo (colyseus.js deriva /matchmaking y /<roomId> de esa base).
+#   de protocolo. Colyseus 0.16 expone el matchmake en /matchmake (singular);
+#   el WebSocket va a /?sessionId=...&roomId=... (lo atrapa el matcher @colyseus).
 #   TCP vs UDP: todo aquí es TCP (HTTP/WS). La media real (UDP/SRTP) llega en Fase 3.
 gather.quiiven.com {
 	@colyseus {
@@ -12,7 +13,7 @@ gather.quiiven.com {
 		reverse_proxy server:2567
 	}
 
-	@api path /matchmaking/* /health /auth/* /api/*
+	@api path /matchmake/* /matchmaking/* /health /auth/* /api/*
 	handle @api {
 		reverse_proxy server:2567
 	}
