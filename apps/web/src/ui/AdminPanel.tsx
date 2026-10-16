@@ -1,13 +1,16 @@
 import React from "react";
+import { MAP_H, MAP_W, TILE } from "@quiiven/protocol";
 import type { NetHandle } from "../game/useColyseus";
 import type { Material, SmartObject } from "../game/objects";
 
 interface Props {
   net: NetHandle;
   objects: SmartObject[];
-  /** Edit mode: drag to move, click to rotate, right click to delete. */
+  /** Edit mode: drag to move, click to rotate, right click to delete. Toggled from the topbar plan icon. */
   editing: boolean;
-  onEditingChange: (on: boolean) => void;
+  /** Local player position (top-left of the avatar box); new builds spawn next to it. */
+  playerX?: number;
+  playerY?: number;
 }
 
 type BuildKind = "wall" | "window" | "door";
@@ -30,8 +33,7 @@ const MATERIALS: { value: Material; label: string }[] = [
  * Permite duplicar, borrar, y construir muros/ventanas/puertas con material.
  * El movimiento es por arrastre directo en el canvas.
  */
-export function AdminPanel({ net, objects, editing, onEditingChange }: Props) {
-  const [open, setOpen] = React.useState(true);
+export function AdminPanel({ net, objects, editing, playerX, playerY }: Props) {
   const [msg, setMsg] = React.useState("");
   const [buildKind, setBuildKind] = React.useState<BuildKind>("wall");
   const [material, setMaterial] = React.useState<Material>("wood");
@@ -60,14 +62,15 @@ export function AdminPanel({ net, objects, editing, onEditingChange }: Props) {
   };
 
   const buildHere = () => {
-    // Centro del viewport: el cliente conoce su posición local;
-    // para simplificar colocamos en el centro del mapa (100x60 tiles).
-    // Snap a grid de 32px para que caiga en un cuadrito exacto.
-    const TILE = 32;
-    const cx = Math.round(1600 / TILE) * TILE; // 50 * TILE
-    const cy = Math.round(960 / TILE) * TILE;  // 30 * TILE
-    const x = cx - Math.round(buildSpec.w / TILE) * TILE / 2;
-    const y = cy - Math.round(buildSpec.h / TILE) * TILE / 2;
+    // Junto al jugador: un cuadrito debajo de su centro, con snap a grid de 32px.
+    // El desplazamiento evita que el muro nazca encima del avatar y lo atrape.
+    // Sin posición conocida (p. ej. antes del primer tick), se usa el centro del mapa.
+    const px = playerX ?? MAP_W / 2;
+    const py = playerY ?? MAP_H / 2;
+    const cx = Math.round(px / TILE) * TILE;
+    const cy = Math.round(py / TILE) * TILE + TILE;
+    const x = Math.min(Math.max(cx - Math.round(buildSpec.w / TILE) * TILE / 2, 0), MAP_W - buildSpec.w);
+    const y = Math.min(Math.max(cy - Math.round(buildSpec.h / TILE) * TILE / 2, 0), MAP_H - buildSpec.h);
     net.sendObjAdd(
       buildSpec.label,
       buildKind,
@@ -97,23 +100,14 @@ export function AdminPanel({ net, objects, editing, onEditingChange }: Props) {
     <section className="q-panel q-admin" aria-label="Administración del mapa">
       <h3 className="q-eyebrow">
         <span>Admin · Mapa</span>
-        <button type="button" className="q-btn q-btn--ghost q-btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          {open ? "Ocultar" : "Mostrar"}
-        </button>
       </h3>
+      {editing && (
+        <p className="q-small q-muted" style={{ margin: "4px 0 0" }}>
+          Arrastra para mover · clic rota · clic derecho borra
+        </p>
+      )}
 
-      <label className="q-switch">
-        <input id="admin-editing" type="checkbox" checked={editing} onChange={(e) => onEditingChange(e.target.checked)} />
-        <span className="q-switch__track" aria-hidden="true" />
-        <span>
-          <strong>Modo edición</strong>
-          <span className="q-small q-muted" style={{ display: "block" }}>
-            Arrastra para mover · clic rota · clic derecho borra
-          </span>
-        </span>
-      </label>
-
-      {open && (
+      {editing && (
         <>
           <h4 id="admin-build" className="q-eyebrow" style={{ marginTop: 16 }}>Construir</h4>
           <div className="q-seg" role="radiogroup" aria-labelledby="admin-build" style={{ display: "flex" }}>
@@ -150,7 +144,7 @@ export function AdminPanel({ net, objects, editing, onEditingChange }: Props) {
             Construir {buildSpec.label.toLowerCase()} de {materialLabel(material).toLowerCase()}
           </button>
           <p className="q-small q-muted" style={{ margin: "6px 0 0" }}>
-            Aparece en el centro del mapa; luego arrástralo a su sitio.
+            Aparece junto a tu personaje; luego arrástralo a su sitio.
           </p>
 
           <h4 className="q-eyebrow" style={{ marginTop: 16 }}>

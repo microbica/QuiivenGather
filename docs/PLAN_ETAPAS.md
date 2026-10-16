@@ -70,6 +70,7 @@ en la TV Sala 1 (objeto `kind=meet`) en lugar del placeholder.
 - [x] Handlers admin: `obj-move` (drag en canvas), `obj-add` (duplicar), `obj-remove` (borrar) — todos validados server-side
 - [x] Web: `AdminPanel` (lista + duplicar/borrar), drag de marcadores ⌖ en `GameCanvas`, badge `[admin]` en GooglePanel
 - [x] Tests: seed admin, CRUD objetos, `isEmailAllowed`
+- [x] Página admin `#/admin`: usuarios (listar, promover/degradar, borrar con anti auto-bloqueo), Meet/TV en vivo (reusa GooglePanel), estado guardado de jugadores (solo lectura). Objetos solo en el mapa (modo edición del canvas). Conexión oculta al room (sin avatar). Solo rol admin (403 para el resto). Botón ⚙ en el topbar del juego.
 - DoD: admin mueve/duplica/borra objetos y todos los clientes ven los cambios en vivo. ✅
 
 ## Fase 5 — Prod Lightsail

@@ -463,6 +463,24 @@ export function paintAvatar(cfg: AvatarConfig, facing: Facing = "front", frame: 
   return { w: c.w, h: c.h, px: c.px };
 }
 
+/**
+ * Cropped head (face + hair + headwear) for profile icons.
+ * Reuses the full paint so the icon always matches the in-game avatar.
+ */
+export function paintFace(cfg: AvatarConfig, facing: Facing = "front"): PixelGrid {
+  const full = paintAvatar(cfg, facing, 0, "stand");
+  const { hT } = layout(cfg, "stand");
+  const x0 = 1;
+  const x1 = AVATAR_W - 1; // cols 1..14 (inclusive-exclusive)
+  const y0 = Math.max(0, hT - 4); // headwear above the head
+  const y1 = Math.min(full.h, hT + 11); // hair below the chin
+  const px: string[] = [];
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) px.push(full.px[y * full.w + x]);
+  }
+  return { w: x1 - x0, h: y1 - y0, px };
+}
+
 /** Converts a grid to a canvas (1 px per cell; scale it with CSS/Pixi). */
 export function gridToCanvas(grid: PixelGrid, doc: Document = document): HTMLCanvasElement {
   const canvas = doc.createElement("canvas");

@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
   email TEXT PRIMARY KEY,
-  role  TEXT NOT NULL DEFAULT 'user',
-  created_at INTEGER NOT NULL
+  role TEXT NOT NULL DEFAULT 'user',
+  created_at BIGINT NOT NULL
 );

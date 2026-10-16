@@ -8,6 +8,7 @@ import { SmartObjectModal } from "./ui/SmartObjectModal";
 import { VoicePanel } from "./ui/VoicePanel";
 import { GooglePanel } from "./ui/GooglePanel";
 import { AdminPanel } from "./ui/AdminPanel";
+import { AdminPage } from "./ui/AdminPage";
 import { ProfilePanel } from "./ui/ProfilePanel";
 import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
 import type { CalendarEvent } from "./api/google";
@@ -125,6 +126,10 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
 
   const onNearby = React.useCallback((ids: string[]) => setNearby(ids), []);
   const onObject = React.useCallback((obj: SmartObject | null) => setActiveObject(obj), []);
+  const [playerPos, setPlayerPos] = React.useState({ x: 1600, y: 1664 });
+  const onPosition = React.useCallback((x: number, y: number) => setPlayerPos({ x, y }), []);
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const [chatOpen, setChatOpen] = React.useState(true);
   const onPublishMeet = React.useCallback(
     (url: string) => net.sendSetMeet(url),
     [net],
@@ -143,17 +148,14 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   return (
     <div style={{ position: "relative", height: "100%" }}>
       <aside className="q-rail">
-        <GooglePanel net={net} onEvents={setCalendarMeets} />
+        {calendarOpen && <GooglePanel net={net} onEvents={setCalendarMeets} />}
         <Sidebar
-        status={status}
         roster={roster}
         nearby={nearby}
         messages={messages}
-        name={name}
-        avatar={avatar}
-        onEditProfile={() => setProfileOpen(true)}
-        onName={() => undefined}
         sendChat={sendChat}
+        chatOpen={chatOpen}
+        onCloseChat={() => setChatOpen(false)}
       />
       </aside>
       <VoicePanel
@@ -170,8 +172,22 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         onToggleAudio={voice.toggleAudio}
         onToggleVideo={voice.toggleVideo}
       />
-      {isAdmin && <AdminPanel net={net} objects={objects} editing={adminMode} onEditingChange={setAdminMode} />}
-      <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} audio={voice.audio} />
+      {isAdmin && adminMode && <AdminPanel net={net} objects={objects} editing={adminMode} playerX={playerPos.x} playerY={playerPos.y} />}
+      {!chatOpen && (
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          title="Mostrar chat general"
+          aria-label="Abrir chat"
+          style={{ position: "absolute", right: 0, bottom: 16, zIndex: 20, width: 40, height: 48, borderRadius: "12px 0 0 12px", border: "1px solid var(--q-line)", borderRight: "none", background: "var(--q-orange)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "-2px 2px 10px rgba(0,0,0,0.18)" }}
+        >
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M2.5 3h11v8h-6l-3 2.5v-2.5h-2v-8z" />
+            <path d="M5.5 6h5M5.5 8.2h3" />
+          </svg>
+        </button>
+      )}
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} />
       {profileOpen && (
         <ProfilePanel
           name={name}
@@ -198,16 +214,80 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
 /** Design-preview mode: skips Google login so the UI can be reviewed without a server. */
 const DEMO = import.meta.env.VITE_DEMO === "1";
 
+/** Hash routing sin dependencias: "" o "#/" = juego, "#/admin" = administración. */
+function useRoute(): string {
+  const [hash, setHash] = React.useState(() => window.location.hash);
+  React.useEffect(() => {
+    const onHash = () => {
+      setHash(window.location.hash);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  return hash;
+}
+
+const goGame = () => {
+  window.location.hash = "#/";
+};
+
 export function App() {
   const [auth, setAuth] = React.useState<GoogleStatus | null>(null);
 
   const [demoIn, setDemoIn] = React.useState(false);
+  const route = useRoute();
 
   if (DEMO) {
+    if (route === "#/admin") {
+      return demoIn ? (
+        <AdminPage name="Invitado Demo" myEmail="" onBack={goGame} />
+      ) : (
+        <LoginGate onAuthorized={() => undefined} onDemoLogin={() => setDemoIn(true)} />
+      );
+    }
     return demoIn ? (
       <GameApp name="Invitado Demo" isAdmin />
     ) : (
       <LoginGate onAuthorized={() => undefined} onDemoLogin={() => setDemoIn(true)} />
+    );
+  }
+
+  if (route === "#/admin") {
+    if (!auth || !auth.authorized) {
+      return <LoginGate onAuthorized={setAuth} />;
+    }
+    if (auth.role !== "admin") {
+      return (
+        <main
+          style={{
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#0e1424",
+            color: "#e8ecf4",
+            fontFamily: "system-ui, sans-serif",
+          }}
+        >
+          <div style={{ textAlign: "center", maxWidth: 360 }}>
+            <h1 style={{ fontSize: 20 }}>Sin acceso</h1>
+            <p style={{ color: "#9aa6bd", fontSize: 14 }}>
+              Esta página es solo para cuentas con rol admin.
+            </p>
+            <button type="button" className="q-btn q-btn--sm" onClick={goGame}>
+              ← Volver al juego
+            </button>
+          </div>
+        </main>
+      );
+    }
+    return (
+      <AdminPage
+        name={displayName(auth.email ?? "user")}
+        myEmail={auth.email ?? ""}
+        onBack={goGame}
+      />
     );
   }
 

@@ -1,4 +1,4 @@
-import { ArraySchema, Schema, MapSchema, type } from "@colyseus/schema";
+import { Schema, MapSchema, type } from "@colyseus/schema";
 
 // Shared constants: single source of truth for client prediction,
 // server validation and map bounds (demo.tmj is 100x60 @32px, see scripts/gen-map.mjs).
@@ -10,7 +10,6 @@ export const PLAYER_H = 28;
 export const CLIENT_SPEED = 170; // px/s, must stay <= MAX_SPEED
 export const MAX_SPEED = 260; // px/s tolerance for server validation
 export const CHAT_MAX_LEN = 280;
-export const CHAT_HISTORY = 50;
 export const MESH_MAX_PEERS = 5; // Fase 3: malla P2P, tope por proximidad
 // Spawn en la Recepción (oficina Quiiven, scripts/gen-map.mjs).
 export const SPAWN = { x: 50 * TILE + TILE / 2, y: 52 * TILE + TILE / 2 };
@@ -23,12 +22,8 @@ export class Player extends Schema {
   @type("string") dir = "down";
   @type("string") anim = "idle";
   @type("string") zoneId = "";
-}
-
-export class ChatMessage extends Schema {
-  @type("string") name = "";
-  @type("string") text = "";
-  @type("number") ts = 0;
+  /** Color del avatar (asignado por el server al unirse, estable por usuario). */
+  @type("number") color = 0;
 }
 
 /**
@@ -54,7 +49,6 @@ export class GameObject extends Schema {
 
 export class GameState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
-  @type([ChatMessage]) messages = new ArraySchema<ChatMessage>();
   /** Meet en vivo publicado por un usuario vinculado (Fase 4.5). "" = ninguno. */
   @type("string") meetUrl = "";
   /** Objetos inteligentes del mapa (Fase 6). Mutables solo por admin. */

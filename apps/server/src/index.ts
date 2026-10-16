@@ -19,6 +19,7 @@ import { Server } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { GameRoom } from "./rooms/GameRoom.js";
 import { googleRouter } from "./auth/routes.js";
+import { closeDb, initDb } from "./db.js";
 
 const PORT = Number(process.env.SERVER_PORT ?? 2567);
 const CORS_ORIGIN = process.env.SERVER_CORS_ORIGIN ?? "http://localhost:5173";
@@ -47,6 +48,18 @@ process.on("uncaughtException", (err) => {
   console.error("[server] uncaughtException:", err);
   process.exit(1);
 });
+
+const shutdown = async (signal: string) => {
+  console.log(`[server] ${signal} received, shutting down…`);
+  await closeDb();
+  process.exit(0);
+};
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+
+// Migraciones + seed al arranque (no esperar a que un cliente cree el room).
+await initDb();
+console.log("[server] DB ready");
 
 httpServer.listen(PORT, () => {
   console.log(`[server] Fase 0 listening on :${PORT} (cors: ${CORS_ORIGIN})`);

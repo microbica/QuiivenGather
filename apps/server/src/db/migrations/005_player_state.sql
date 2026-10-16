@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS players (
+  email TEXT PRIMARY KEY,
+  x INTEGER NOT NULL,
+  y INTEGER NOT NULL,
+  dir TEXT NOT NULL DEFAULT 'down',
+  anim TEXT NOT NULL DEFAULT 'idle',
+  zone_id TEXT NOT NULL DEFAULT '',
+  color BIGINT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL,
+  FOREIGN KEY(email) REFERENCES users(email)
+);

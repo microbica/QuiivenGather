@@ -17,8 +17,8 @@ import {
   sessionSub,
   setCookieHeader,
 } from "./sessions.js";
-import { deleteTokens, getTokens, saveTokens } from "./store.js";
-import { getRole, upsertUser } from "../db.js";
+import { deleteTokens, deleteTokensByEmail, getTokens, saveTokens } from "./store.js";
+import { deleteUser, getRole, listPlayers, listUsers, setUserRole, upsertUser } from "../db.js";
 
 const pendingState = new Map<string, number>(); // state -> expiry ms
 
@@ -28,6 +28,16 @@ function webOrigin(): string {
 
 function requireSession(req: Request): string | null {
   return sessionSub(req.headers.cookie);
+}
+
+/** Devuelve el email si la sesión pertenece a un admin; si no, null. */
+async function requireAdmin(req: Request): Promise<string | null> {
+  const sub = requireSession(req);
+  if (!sub) return null;
+  const t = getTokens(sub);
+  if (!t) return null;
+  if ((await getRole(t.email)) !== "admin") return null;
+  return t.email;
 }
 
 async function googleFetch(
@@ -109,7 +119,7 @@ export function googleRouter(): Router {
         tokens,
         tokens.refresh_token ?? prev?.refreshToken,
       );
-      upsertUser(profile.email);
+      await upsertUser(profile.email);
       const sessionId = createSession(profile.sub);
       const secure = webOrigin().startsWith("https://");
       res.setHeader("Set-Cookie", setCookieHeader(sessionId, secure));
@@ -122,7 +132,7 @@ export function googleRouter(): Router {
     }
   });
 
-  r.get("/auth/google/status", (req, res) => {
+  r.get("/auth/google/status", async (req, res) => {
     const sub = requireSession(req);
     if (!sub) {
       res.json({ linked: false, configured: isGoogleConfigured(), authorized: false });
@@ -134,7 +144,7 @@ export function googleRouter(): Router {
       linked: !!t,
       email: t?.email ?? null,
       authorized,
-      role: t ? getRole(t.email) : "user",
+      role: t ? await getRole(t.email) : "user",
     });
   });
 
@@ -240,6 +250,81 @@ export function googleRouter(): Router {
     } catch (e) {
       res.status(502).json({ error: e instanceof Error ? e.message : e });
     }
+  });
+
+  // Administración de roles (solo admin). Ver la columna `role` de la tabla `users`.
+  r.get("/api/admin/users", async (req, res) => {
+    if (!(await requireAdmin(req))) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    res.json({ users: await listUsers() });
+  });
+
+  r.post("/api/admin/role", async (req, res) => {
+    const me = await requireAdmin(req);
+    if (!me) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    const { email, role } = req.body as {
+      email?: unknown;
+      role?: unknown;
+    };
+    if (typeof email !== "string" || !email.includes("@")) {
+      res.status(400).json({ error: "invalid email" });
+      return;
+    }
+    if (role !== "admin" && role !== "user") {
+      res.status(400).json({ error: "role must be 'admin' or 'user'" });
+      return;
+    }
+    const lower = email.trim().toLowerCase();
+    // Anti-bloqueo: nadie puede quitarse el admin a sí mismo.
+    if (lower === me.toLowerCase() && role !== "admin") {
+      res.status(400).json({ error: "cannot demote yourself" });
+      return;
+    }
+    const u = await setUserRole(lower, role);
+    if (!u) {
+      res.status(404).json({ error: "unknown user (debe entrar al menos una vez)" });
+      return;
+    }
+    res.json({ user: u });
+  });
+
+  // Estado guardado de jugadores (tabla de admin, solo lectura).
+  r.get("/api/admin/players", async (req, res) => {
+    if (!(await requireAdmin(req))) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    res.json({ players: await listPlayers() });
+  });
+
+  // Borra un usuario: estado guardado + fila + tokens. Sin auto-borrado.
+  r.delete("/api/admin/users/:email", async (req, res) => {
+    const me = await requireAdmin(req);
+    if (!me) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    const email = decodeURIComponent(req.params.email ?? "").trim().toLowerCase();
+    if (!email.includes("@")) {
+      res.status(400).json({ error: "invalid email" });
+      return;
+    }
+    if (email === me.toLowerCase()) {
+      res.status(400).json({ error: "cannot delete yourself" });
+      return;
+    }
+    const u = await deleteUser(email);
+    if (!u) {
+      res.status(404).json({ error: "unknown user" });
+      return;
+    }
+    deleteTokensByEmail(email);
+    res.json({ deleted: u });
   });
 
   return r;

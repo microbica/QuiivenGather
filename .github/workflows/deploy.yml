@@ -32,8 +32,16 @@ jobs:
       - run: pnpm test
 
       - name: Escribir .env de test (no se versiona)
+        # Secrets de GitHub (Settings → Secrets → Actions). Para agregar uno
+        # nuevo basta mapearlo en `env:` y añadir su nombre a SECRET_VARS.
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET_TEST }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID_TEST }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET_TEST }}
+          GOOGLE_TOKEN_KEY: ${{ secrets.GOOGLE_TOKEN_KEY_TEST }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
         run: |
-          cat > .env <<EOF
+          cat > .env <<'EOF'
           NODE_ENV=development
           APP_NAME=gatherQuiiven
           VITE_COLYSEUS_URL=wss://gather.quiiven.com
@@ -48,18 +56,30 @@ jobs:
           SERVER_CORS_ORIGIN=https://gather.quiiven.com
           GAME_PATCH_RATE=50
           GAME_MAX_CLIENTS=50
-          JWT_SECRET=${{ secrets.JWT_SECRET_TEST }}
           LIVEKIT_URL=
           LIVEKIT_API_KEY=
           LIVEKIT_API_SECRET=
           TURN_SECRET=
           REDIS_URL=
-          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID_TEST }}
-          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET_TEST }}
           GOOGLE_REDIRECT_URI=https://gather.quiiven.com/auth/google/callback
           GOOGLE_ALLOWED_DOMAIN=quiiven.com
-          GOOGLE_TOKEN_KEY=${{ secrets.GOOGLE_TOKEN_KEY_TEST }}
+          GOOGLE_ALLOWED_EMAILS=
+          GOOGLE_ADMIN_EMAIL=alejandro.moreno@quiiven.com
           EOF
+          # Inyección dinámica de secrets al .env (llega al container vía env_file).
+          # Falla si alguno viene vacío para no desplegar a ciegas.
+          SECRET_VARS="JWT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_TOKEN_KEY DATABASE_URL"
+          missing=""
+          for v in $SECRET_VARS; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Faltan secrets de GitHub:$missing"
+            exit 1
+          fi
+          for v in $SECRET_VARS; do
+            printf '%s=%s\n' "$v" "${!v}" >> .env
+          done
 
       - name: Desplegar con Docker Compose
         run: docker compose up --build -d

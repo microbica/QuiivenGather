@@ -7,6 +7,9 @@ import {
   sanitizeZone,
   validAnim,
   validDir,
+  validKind,
+  validMaterial,
+  validRotation,
   validSignal,
 } from "./validate";
 
@@ -76,5 +79,32 @@ describe("chat y nombres", () => {
     expect(validAnim("fly", "idle")).toBe("idle");
     expect(validAnim("sit", "idle")).toBe("sit");
     expect(validAnim("stretch", "idle")).toBe("stretch");
+  });
+});
+
+describe("objetos (admin)", () => {
+  it("validKind acepta los 6 kinds y cae a generic", () => {
+    expect(validKind("wall")).toBe("wall");
+    expect(validKind("window")).toBe("window");
+    expect(validKind("door")).toBe("door");
+    expect(validKind("meet")).toBe("meet");
+    expect(validKind("hack")).toBe("generic");
+    expect(validKind(undefined)).toBe("generic");
+  });
+
+  it("validMaterial acepta los 4 materiales y cae a wood", () => {
+    expect(validMaterial("glass")).toBe("glass");
+    expect(validMaterial("stone")).toBe("stone");
+    expect(validMaterial("plástico")).toBe("wood");
+    expect(validMaterial(42)).toBe("wood");
+  });
+
+  it("validRotation hace snap a pasos de 30°", () => {
+    expect(validRotation(0)).toBe(0);
+    expect(validRotation(30)).toBe(30);
+    expect(validRotation(44)).toBe(30);
+    expect(validRotation(46)).toBe(60);
+    expect(validRotation(359)).toBe(0);
+    expect(validRotation("nope")).toBe(0);
   });
 });

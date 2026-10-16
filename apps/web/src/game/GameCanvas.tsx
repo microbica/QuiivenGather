@@ -12,11 +12,11 @@ import { nearestObject, type SmartObject } from "./objects";
 import { makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
 import { drawDecor, drawFloor } from "./decor";
 import { avatarKey, randomAvatar, type AvatarConfig } from "../avatar/config";
-import { AVATAR_H, gridToCanvas, paintAvatar, type Facing, type Frame, type Pose } from "../avatar/render";
+import { AVATAR_H, gridToCanvas, paintAvatar, paintFace, type Facing, type Frame, type Pose } from "../avatar/render";
 import { paintPet } from "../avatar/pets";
 import { ANIM_BY_ACTIVITY, buildInteractables, nearestInteractable, type Interactable } from "./interactions";
 import type { SpatialAudio } from "./spatialAudio";
-import type { NetHandle } from "./useColyseus";
+import type { NetHandle, NetStatus } from "./useColyseus";
 
 const SPEED = CLIENT_SPEED;
 const BODY_W = PLAYER_W;
@@ -131,26 +131,31 @@ const FACING_BY_DIR: Record<string, Facing> = { down: "front", up: "back", left:
 const WALK_CYCLE: Frame[] = [1, 0, 2, 0];
 const textureCache = new Map<string, Texture>();
 
-function avatarTexture(cfg: AvatarConfig, facing: Facing, frame: Frame, pose: Pose = "stand"): Texture {
-  const key = `${avatarKey(cfg)}|${facing}|${frame}|${pose}`;
+/**
+ * Shared texture cache: avatar/pet sprites are repainted from the same Texture
+ * across mounts, so callers must NEVER destroy the texture itself — only the
+ * containers (`destroy({ children: true })`). As a safety net, a cache entry
+ * whose texture was destroyed elsewhere is repainted on demand.
+ */
+function cachedTexture(key: string, paint: () => HTMLCanvasElement): Texture {
   let tex = textureCache.get(key);
-  if (!tex) {
-    tex = Texture.from(gridToCanvas(paintAvatar(cfg, facing, frame, pose)));
+  if (!tex || tex.destroyed) {
+    if (tex) textureCache.delete(key);
+    tex = Texture.from(paint());
     tex.source.scaleMode = "nearest";
     textureCache.set(key, tex);
   }
   return tex;
 }
 
+function avatarTexture(cfg: AvatarConfig, facing: Facing, frame: Frame, pose: Pose = "stand"): Texture {
+  const key = `${avatarKey(cfg)}|${facing}|${frame}|${pose}`;
+  return cachedTexture(key, () => gridToCanvas(paintAvatar(cfg, facing, frame, pose)));
+}
+
 function petTexture(cfg: AvatarConfig, left: boolean, frame: 0 | 1): Texture {
   const key = `pet|${cfg.pet}|${cfg.petColor}|${left}|${frame}`;
-  let tex = textureCache.get(key);
-  if (!tex) {
-    tex = Texture.from(gridToCanvas(paintPet(cfg.pet, cfg.petColor, left, frame)));
-    tex.source.scaleMode = "nearest";
-    textureCache.set(key, tex);
-  }
-  return tex;
+  return cachedTexture(key, () => gridToCanvas(paintPet(cfg.pet, cfg.petColor, left, frame)));
 }
 
 /** Network anim -> body pose; unknown values fall back to standing. */
@@ -311,7 +316,7 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onNearby, onObject, audio }: { name: string; avatar: AvatarConfig; net: NetHandle; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; audio: SpatialAudio | null }) {
+export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio }: { name: string; avatar: AvatarConfig; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   /** Set by the E key or the hint button; consumed by the game loop. */
   const interactRef = React.useRef(false);
@@ -324,6 +329,8 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
   onNearbyRef.current = onNearby;
   const onObjectRef = React.useRef(onObject);
   onObjectRef.current = onObject;
+  const onPositionRef = React.useRef(onPosition);
+  onPositionRef.current = onPosition;
   const audioRef = React.useRef(audio);
   audioRef.current = audio;
   const objectsRef = React.useRef(objects);
@@ -343,6 +350,14 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
     () => new URLSearchParams(window.location.search).has("debug"),
     [],
   );
+  /** Mini foto del rostro para el botón de perfil del topbar. */
+  const avatarIcon = React.useMemo(() => {
+    try {
+      return gridToCanvas(paintFace(avatar, "front")).toDataURL();
+    } catch {
+      return "";
+    }
+  }, [avatar]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -636,6 +651,8 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
         const dt = Math.min(ticker.deltaMS / 1000, 0.05);
         const viewW = app!.screen.width;
         const viewH = app!.screen.height;
+        const viewWz = viewW / zoom;
+        const viewHz = viewH / zoom;
         let vx = 0;
         let vy = 0;
         for (const k of keys) {
@@ -740,7 +757,7 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
         // Proximity mock: green ring = connected (would get audio in Fase 3).
         const room = net.getRoom();
         const connectedIds: string[] = [];
-        if (room) {
+        if (room?.state?.players) {
           const selfZone = { zoneId: myZone?.id ?? "", zoneKind: myZone?.kind ?? "" };
           room.state.players.forEach((p, id) => {
             if (id === net.sessionId) return;
@@ -790,8 +807,10 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           for (const [id, r] of remotes) {
             if (!room.state.players.get(id)) {
               avatarC.removeChild(r.c, r.pet);
-              r.c.destroy(true);
-              r.pet.destroy(true);
+              // Solo contenedores: las texturas son compartidas (textureCache) y
+              // destruirlas aquí envenenaría al resto de avatares (alphaMode null).
+              r.c.destroy({ children: true });
+              r.pet.destroy({ children: true });
               remotes.delete(id);
               audioRef.current?.detach(id);
             }
@@ -801,8 +820,6 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
         // Follow camera with smoothing + clamp (en coords mundo, considerando zoom).
         const cx = pos.x + BODY_W / 2;
         const cy = pos.y + BODY_H / 2;
-        const viewWz = viewW / zoom;
-        const viewHz = viewH / zoom;
         const tx = Math.min(Math.max(cx - viewWz / 2, 0), Math.max(0, map.widthPx - viewWz));
         const ty = Math.min(Math.max(cy - viewHz / 2, 0), Math.max(0, map.heightPx - viewHz));
         const k = Math.min(1, dt * 8);
@@ -832,6 +849,7 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           }
           const z = zoneAt(cx, cy, map.zones);
           lastNearCount = connectedIds.length;
+          onPositionRef.current?.(Math.round(pos.x), Math.round(pos.y));
           const key = connectedIds.slice().sort().join(",");
           if (key !== lastNearby) {
             lastNearby = key;
@@ -872,6 +890,62 @@ export function GameCanvas({ name, avatar, net, objects, isAdmin, adminMode, onN
           {hud.area && <span className={`q-area-dot q-area-dot--${hud.area}`} aria-hidden="true" />}
           {hud.zone === "—" ? "Pasillo" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
         </span>
+        {netStatus && netStatus !== "online" && (
+          <span className="q-chip" title={netStatus === "offline" ? "No hay conexión con el servidor" : undefined}>
+            <span className={`q-dot q-dot--${netStatus}`} />
+            {netStatus === "offline" ? "Sin conexión" : netStatus === "connecting" ? "Conectando…" : "Vista previa"}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => onEditProfile?.()}
+          title="Mi avatar (editar perfil)"
+          aria-label="Editar mi avatar"
+          style={{ marginLeft: "auto", pointerEvents: "auto", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, border: "1px solid var(--q-line)", background: "transparent", cursor: "pointer", overflow: "hidden", padding: 0 }}
+        >
+          {avatarIcon && (
+            <img src={avatarIcon} alt="" width={20} height={20} style={{ imageRendering: "pixelated", display: "block" }} />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => onCalendarOpenChange?.(!calendarOpen)}
+          title={calendarOpen ? "Ocultar calendario" : "Mostrar mi día (calendario y Meet)"}
+          aria-pressed={calendarOpen}
+          aria-label="Calendario"
+          style={{ pointerEvents: "auto", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, border: "1px solid var(--q-line)", background: calendarOpen ? "var(--q-blue)" : "transparent", color: calendarOpen ? "#fff" : "inherit", cursor: "pointer" }}
+        >
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+            <rect x="2" y="3" width="12" height="11" rx="1.5" />
+            <path d="M2 6.5h12" />
+            <path d="M5.5 1.5v2.5M10.5 1.5v2.5" />
+          </svg>
+        </button>
+        {isAdmin && (
+          <>
+            <button
+              type="button"
+              onClick={() => onAdminModeChange?.(!adminMode)}
+              title={adminMode ? "Desactivar modo edición" : "Activar modo edición (arrastra para mover · clic rota · clic derecho borra)"}
+              aria-pressed={adminMode}
+              aria-label="Modo edición"
+              style={{ pointerEvents: "auto", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, border: "1px solid var(--q-line)", background: adminMode ? "var(--q-teal)" : "transparent", color: adminMode ? "#fff" : "inherit", cursor: "pointer" }}
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                <rect x="2" y="2" width="12" height="12" rx="1" />
+                <path d="M2 7h5V14" />
+                <path d="M9.5 7H14" />
+              </svg>
+            </button>
+            <a
+              href="#/admin"
+              title="Abrir página de administración"
+              style={{ pointerEvents: "auto", fontSize: 13, fontWeight: 600, textDecoration: "none", border: "1px solid var(--q-line)", borderRadius: 8, padding: "4px 10px" }}
+            >
+              ⚙ Admin
+            </a>
+          </>
+        )}
       </div>
       {hint && (
         <button

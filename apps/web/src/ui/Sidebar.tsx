@@ -1,34 +1,19 @@
 import React from "react";
-import type {
-  ChatEntry,
-  NetStatus,
-  RosterEntry,
-} from "../game/useColyseus";
+import type { ChatEntry, RosterEntry } from "../game/useColyseus";
 import { AvatarCanvas } from "../avatar/AvatarCanvas";
-import { randomAvatar, type AvatarConfig } from "../avatar/config";
+import { randomAvatar } from "../avatar/config";
 
 interface Props {
-  status: NetStatus;
   roster: RosterEntry[];
   nearby: string[];
   messages: ChatEntry[];
-  name: string;
-  /** The person's own avatar; others get a stable look from their name for now. */
-  avatar: AvatarConfig;
-  onEditProfile: () => void;
-  /** Kept for API compatibility; renaming is not exposed in the UI yet. */
-  onName: (n: string) => void;
   sendChat: (text: string) => void;
+  /** El chat se pliega con la flecha del header; se abre desde la pestaña del borde. */
+  chatOpen: boolean;
+  onCloseChat: () => void;
 }
 
-const STATUS_LABEL: Record<NetStatus, string> = {
-  online: "En línea",
-  connecting: "Conectando…",
-  offline: "Sin conexión",
-  demo: "Vista previa",
-};
-
-export function Sidebar({ status, roster, nearby, messages, name, avatar, onEditProfile, sendChat }: Props) {
+export function Sidebar({ roster, nearby, messages, sendChat, chatOpen, onCloseChat }: Props) {
   const [draft, setDraft] = React.useState("");
   const chatEnd = React.useRef<HTMLDivElement>(null);
 
@@ -43,60 +28,42 @@ export function Sidebar({ status, roster, nearby, messages, name, avatar, onEdit
     setDraft("");
   };
 
-  // Show self even before the server answers, so the list is never empty.
-  const people: RosterEntry[] =
-    roster.length > 0 ? roster : [{ id: "self", name, self: true }];
-  const sorted = [...people].sort(
-    (a, b) =>
-      Number(b.self) - Number(a.self) ||
-      Number(nearby.includes(b.id)) - Number(nearby.includes(a.id)),
-  );
+  // Solo gente a rango de voz (sin uno mismo). La tarjeta solo existe si hay alguien cerca.
+  const nearPeople = nearby
+    .map((id) => roster.find((r) => r.id === id))
+    .filter((r): r is RosterEntry => !!r && !r.self);
 
   return (
     <>
-      <section className="q-panel" style={{ maxHeight: 260, overflowY: "auto" }}>
-        <h3 className="q-eyebrow">
-          <span>En la oficina · {roster.length || 1}</span>
-          <span className="q-chip">
-            <span className={`q-dot q-dot--${status}`} />
-            {STATUS_LABEL[status]}
-          </span>
-        </h3>
-        {sorted.map((r) => {
-          const near = nearby.includes(r.id);
-          const face = (
-            <span className="q-avatar-mini" data-near={near}>
-              <AvatarCanvas cfg={r.self ? avatar : randomAvatar(r.name)} scale={2} cropTop={3} cropRows={14} />
-            </span>
-          );
-          if (r.self) {
-            return (
-              <button key={r.id} type="button" className="q-person q-person--self" onClick={onEditProfile}>
-                {face}
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  {r.name} <span className="q-muted">(tú)</span>
-                </span>
-                <span className="q-small q-muted">Editar ✎</span>
-              </button>
-            );
-          }
-          return (
+      {nearby.length > 0 && (
+        <section className="q-panel" style={{ maxHeight: 260, overflowY: "auto" }}>
+          <h3 className="q-eyebrow">
+            <span>Cerca de ti · {nearby.length}</span>
+          </h3>
+          {nearPeople.map((r) => (
             <div key={r.id} className="q-person">
-              {face}
+              <span className="q-avatar-mini" data-near={true}>
+                <AvatarCanvas cfg={randomAvatar(r.name)} scale={2} cropTop={3} cropRows={14} />
+              </span>
               <span style={{ flex: 1, minWidth: 0 }}>{r.name}</span>
-              {near && <span className="q-small" style={{ color: "var(--q-teal-dark)" }}>cerca</span>}
+              <span className="q-small" style={{ color: "var(--q-teal-dark)" }}>cerca</span>
             </div>
-          );
-        })}
-        {nearby.length === 0 && (
-          <p className="q-small q-muted" style={{ margin: "8px 0 0" }}>
-            Acércate a alguien en el mapa para hablar.
-          </p>
-        )}
-      </section>
-
-      <section className="q-panel q-chat">
-        <h3 className="q-eyebrow">Chat general</h3>
+          ))}
+          {nearPeople.length === 0 && (
+            <p className="q-small q-muted" style={{ margin: "8px 0 0" }}>
+              Alguien se acerca…
+            </p>
+          )}
+        </section>
+      )}
+      {chatOpen && (
+      <section className="q-panel q-chat" style={{ maxHeight: "50%", marginTop: "auto" }}>
+        <h3 className="q-eyebrow">
+          <span>Chat general</span>
+          <button type="button" className="q-btn q-btn--ghost q-btn--sm" onClick={onCloseChat} aria-label="Cerrar chat" title="Plegar chat">
+            ✕
+          </button>
+        </h3>
         <div className="q-chat__log">
           {messages.map((m, i) => (
             <div key={`${m.ts}-${i}`} className="q-chat__msg">
@@ -130,6 +97,7 @@ export function Sidebar({ status, roster, nearby, messages, name, avatar, onEdit
           </button>
         </form>
       </section>
+      )}
     </>
   );
 }

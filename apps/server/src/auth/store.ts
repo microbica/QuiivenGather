@@ -104,3 +104,18 @@ export function deleteTokens(sub: string): void {
   delete all[sub];
   writeAll(all);
 }
+
+/** Borra los tokens de todas las sesiones vinculadas a un email. Devuelve si borró algo. */
+export function deleteTokensByEmail(email: string): boolean {
+  const lower = email.toLowerCase();
+  const all = readAll();
+  let changed = false;
+  for (const [sub, s] of Object.entries(all)) {
+    if (s.email.toLowerCase() === lower) {
+      delete all[sub];
+      changed = true;
+    }
+  }
+  if (changed) writeAll(all);
+  return changed;
+}

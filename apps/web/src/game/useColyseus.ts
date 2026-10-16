@@ -44,6 +44,21 @@ export interface NetHandle {
   ): void;
   sendObjRemove(id: string): void;
   sendObjRotate(id: string, rotation: number): void;
+  sendObjUpdate(
+    id: string,
+    patch: {
+      label?: string;
+      kind?: SmartObject["kind"];
+      material?: SmartObject["material"];
+      x?: number;
+      y?: number;
+      w?: number;
+      h?: number;
+      radius?: number;
+      url?: string;
+      rotation?: number;
+    },
+  ): void;
 }
 
 export type NetStatus = "connecting" | "online" | "offline" | "demo";
@@ -58,7 +73,8 @@ const URL = import.meta.env.VITE_COLYSEUS_URL ?? "ws://localhost:2567";
  * ticker can poll it every frame without re-renders; roster/chat/status
  * go through React state for the DOM sidebar.
  */
-export function useColyseusRoom(name: string) {
+export function useColyseusRoom(name: string, opts?: { hidden?: boolean }) {
+  const hidden = opts?.hidden === true;
   const roomRef = React.useRef<Room<GameState> | null>(null);
   const [status, setStatus] = React.useState<NetStatus>("connecting");
   const [roster, setRoster] = React.useState<RosterEntry[]>([]);
@@ -93,6 +109,8 @@ export function useColyseusRoom(name: string) {
           sendObjRemove: (id) => setObjects((list) => list.filter((o) => o.id !== id)),
           sendObjRotate: (id, rotation) =>
             setObjects((list) => list.map((o) => (o.id === id ? { ...o, rotation } : o))),
+          sendObjUpdate: (id, patch) =>
+            setObjects((list) => list.map((o) => (o.id === id ? { ...o, ...patch } : o))),
         }
       : {
           getRoom: () => roomRef.current,
@@ -104,6 +122,7 @@ export function useColyseusRoom(name: string) {
             roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url, material, rotation }),
           sendObjRemove: (id) => roomRef.current?.send("obj-remove", { id }),
           sendObjRotate: (id, rotation) => roomRef.current?.send("obj-rotate", { id, rotation }),
+          sendObjUpdate: (id, patch) => roomRef.current?.send("obj-update", { id, ...patch }),
         },
   );
 
@@ -184,7 +203,7 @@ export function useColyseusRoom(name: string) {
     setStatus("connecting");
     setRoster([]);
     (async () => {
-      room = await new Client(URL).joinOrCreate<GameState>("game", { name });
+      room = await new Client(URL).joinOrCreate<GameState>("game", hidden ? { name, hidden: true } : { name });
       if (cancelled) {
         await room.leave();
         return;
@@ -203,7 +222,8 @@ export function useColyseusRoom(name: string) {
       const $ = getStateCallbacks(room);
       $(room.state).players.onAdd(() => syncRoster());
       $(room.state).players.onRemove(() => syncRoster());
-      $(room.state).messages.onAdd((m) => {
+      // Chat efímero: solo lo reciben los conectados; no hay historial para quien llega tarde.
+      room.onMessage("chat", (m: { name: string; text: string; ts: number }) => {
         setMessages((prev) => [...prev.slice(-49), { name: m.name, text: m.text, ts: m.ts }]);
       });
       $(room.state).listen("meetUrl", (value: string) => setMeetUrl(value));
@@ -224,7 +244,7 @@ export function useColyseusRoom(name: string) {
       room?.leave().catch(() => undefined);
       room = null;
     };
-  }, [name, net]);
+  }, [name, net, hidden]);
 
   const sendChat = React.useCallback(
     (text: string) => {

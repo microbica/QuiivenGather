@@ -1,7 +1,7 @@
 // Fase 2 smoke: 2 clientes reales contra el server en local.
 // Uso: (server corriendo) pnpm --filter @quiiven/server smoke
 // Verifica: join/spawn, broadcast move <3s, anti-teleport, chat global.
-import { Client, getStateCallbacks } from "colyseus.js";
+import { Client } from "colyseus.js";
 import type { GameState } from "@quiiven/protocol";
 
 const URL = process.env.SMOKE_URL ?? "ws://localhost:2567";
@@ -73,9 +73,9 @@ async function main(): Promise<void> {
   if (dist > 200) throw new Error(`teleport no recortado: (${px},${py})`);
   console.log(`ok: anti-teleport (dist=${Math.round(dist)}px)`);
 
-  // Chat global: B recibe lo de A (callbacks vía proxy v3).
+  // Chat global efímero: B recibe lo de A por broadcast (sin historial en estado).
   let got: string | null = null;
-  getStateCallbacks(roomB)(roomB.state).messages.onAdd((m) => {
+  roomB.onMessage("chat", (m: { text: string }) => {
     got = m.text;
   });
   roomA.send("chat", { text: "hola fase2" });
