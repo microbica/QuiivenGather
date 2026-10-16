@@ -443,6 +443,17 @@ input {
   padding: 24px;
   overflow: auto;
 }
+/* Pizarra: el editor ocupa todo el alto restante (su propio canvas). */
+.q-modal__board {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: #fff;
+}
+.q-modal__board .excalidraw {
+  position: absolute;
+  inset: 0;
+}
 .q-link {
   color: var(--q-flame);
 }

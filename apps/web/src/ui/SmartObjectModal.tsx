@@ -1,6 +1,13 @@
 import React from "react";
 import { objectOrigin, type SmartObject } from "../game/objects";
 import type { CalendarEvent } from "../api/google";
+import { lazy, Suspense } from "react";
+import type { BoardNet } from "./BoardModal";
+
+// El editor Excalidraw es pesado: solo se descarga al abrir una pizarra.
+const BoardModal = lazy(() =>
+  import("./BoardModal").then((m) => ({ default: m.BoardModal })),
+);
 
 export interface SmartEvent {
   type: "OBJECT_ENTER" | "OBJECT_LEAVE";
@@ -18,6 +25,7 @@ export function SmartObjectModal({
   obj,
   liveMeetUrl,
   calendarMeets,
+  boardNet,
   onPublishMeet,
   onClose,
 }: {
@@ -26,9 +34,30 @@ export function SmartObjectModal({
   liveMeetUrl?: string;
   /** Eventos del calendario con Meet para publicar en la TV (Fase 4.5). */
   calendarMeets?: CalendarEvent[];
+  /** Conexión de pizarra colaborativa (solo para kind=board). */
+  boardNet?: BoardNet;
   onPublishMeet?: (url: string) => void;
   onClose: () => void;
 }) {
+  // Pizarras: editor Excalidraw colaborativo (cada board = su documento).
+  if (obj.kind === "board" && boardNet) {
+    return (
+      <Suspense
+        fallback={
+          <div role="dialog" aria-label={obj.label} className="q-panel q-modal">
+            <div className="q-modal__head">
+              <h2>{obj.label}</h2>
+            </div>
+            <div className="q-muted" style={{ display: "grid", placeItems: "center", flex: 1 }}>
+              Cargando pizarra…
+            </div>
+          </div>
+        }
+      >
+        <BoardModal boardId={obj.id} label={obj.label} net={boardNet} onClose={onClose} />
+      </Suspense>
+    );
+  }
   // Para kind=meet, el Meet en vivo del room tiene prioridad sobre la URL estática.
   const effectiveUrl =
     obj.kind === "meet" && liveMeetUrl ? liveMeetUrl : obj.url;

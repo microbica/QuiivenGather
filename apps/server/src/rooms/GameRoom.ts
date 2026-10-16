@@ -13,6 +13,7 @@ import {
 import {
   clampMove,
   sanitizeAvatarMsg,
+  sanitizeBoardScene,
   sanitizeChat,
   sanitizeName,
   sanitizeStatus,
@@ -152,6 +153,13 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("status", (client, msg: { status?: unknown }) => {
       const p = this.state.players.get(client.sessionId);
       if (p) p.status = sanitizeStatus(msg?.status);
+    });
+    // Pizarra colaborativa: la escena viaja por TCP (estado documental
+    // confiable, no media) y se reenvía a los demás sin inspeccionarla.
+    this.onMessage("board-scene", (client, msg: { boardId?: unknown; elements?: unknown }) => {
+      const clean = sanitizeBoardScene(msg);
+      if (!clean) return;
+      this.broadcast("board-scene", clean, { except: client });
     });
     // Fase 3: relay de señalización WebRTC (SDP/ICE). Solo metadata por TCP;
     // nunca media. El servidor no inspecciona el contenido.

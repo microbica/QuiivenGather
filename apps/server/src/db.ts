@@ -385,6 +385,24 @@ export async function savePlayerState(
   );
 }
 
+/** Escena guardada de una pizarra (JSON Excalidraw) o null si está vacía. */
+export async function getBoardScene(boardId: string): Promise<unknown | null> {
+  const { rows } = await (await getPool()).query<{ scene: unknown }>(
+    "SELECT scene FROM board_scenes WHERE board_id = $1",
+    [boardId],
+  );
+  return rows[0]?.scene ?? null;
+}
+
+/** Guarda (upsert) la escena de una pizarra. Ya validada en la ruta. */
+export async function saveBoardScene(boardId: string, scene: unknown): Promise<void> {
+  await (await getPool()).query(
+    `INSERT INTO board_scenes (board_id, scene, updated_at) VALUES ($1, $2::jsonb, $3)
+     ON CONFLICT (board_id) DO UPDATE SET scene = excluded.scene, updated_at = excluded.updated_at`,
+    [boardId, JSON.stringify(scene), Date.now()],
+  );
+}
+
 /** Cierra el pool. Llamar en shutdown. */
 export async function closeDb(): Promise<void> {
   if (pool) {

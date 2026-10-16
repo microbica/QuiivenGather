@@ -34,6 +34,8 @@ export interface NetHandle {
   sendAvatar(cfg: AvatarConfig): void;
   /** Publica el estado de presencia (allowlist en servidor). */
   sendStatus(status: PresenceStatus): void;
+  /** Pizarra colaborativa: reenvía la escena al resto por TCP. */
+  sendBoardScene(boardId: string, elements: readonly unknown[]): void;
   sendSetMeet(url: string): void;
   sendObjMove(id: string, x: number, y: number): void;
   sendObjAdd(
@@ -99,6 +101,7 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
           sendMove: () => undefined,
           sendAvatar: () => undefined,
           sendStatus: () => undefined,
+          sendBoardScene: () => undefined,
           sendSetMeet: (url) => setMeetUrl(url),
           sendObjMove: (id, x, y) => setObjects((list) => list.map((o) => (o.id === id ? { ...o, x, y } : o))),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
@@ -130,6 +133,8 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
           sendMove: (m) => roomRef.current?.send("move", m),
           sendAvatar: (cfg) => roomRef.current?.send("avatar", { ...cfg }),
           sendStatus: (status) => roomRef.current?.send("status", { status }),
+          sendBoardScene: (boardId, elements) =>
+            roomRef.current?.send("board-scene", { boardId, elements }),
           sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
           sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>

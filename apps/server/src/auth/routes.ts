@@ -1,6 +1,6 @@
 // Rutas Google: OAuth + Calendar + Meet (Fase 4.5).
 import { randomBytes } from "node:crypto";
-import { Router, type Request } from "express";
+import express, { Router, type Request } from "express";
 import {
   ALLOWED_DOMAIN,
   buildAuthUrl,
@@ -18,7 +18,8 @@ import {
   setCookieHeader,
 } from "./sessions.js";
 import { deleteTokens, deleteTokensByEmail, getTokens, saveTokens } from "./store.js";
-import { deleteUser, getRole, listPlayers, listUsers, setUserRole, upsertUser } from "../db.js";
+import { deleteUser, getBoardScene, getRole, listPlayers, listUsers, saveBoardScene, setUserRole, upsertUser } from "../db.js";
+import { validBoardDoc, validBoardId } from "../net/validate.js";
 
 const pendingState = new Map<string, number>(); // state -> expiry ms
 
@@ -253,6 +254,52 @@ export function googleRouter(): Router {
       res.status(502).json({ error: e instanceof Error ? e.message : e });
     }
   });
+
+  // Pizarras colaborativas (Fase 7): escena guardada por pizarra en Postgres.
+  r.get("/api/boards/:boardId", async (req, res) => {
+    if (!requireSession(req)) {
+      res.status(401).json({ error: "no session" });
+      return;
+    }
+    const boardId = validBoardId(req.params.boardId);
+    if (!boardId) {
+      res.status(400).json({ error: "bad boardId" });
+      return;
+    }
+    try {
+      const scene = await getBoardScene(boardId);
+      res.json({ scene });
+    } catch (e) {
+      res.status(502).json({ error: e instanceof Error ? e.message : e });
+    }
+  });
+
+  r.put(
+    "/api/boards/:boardId",
+    express.json({ limit: "16mb" }),
+    async (req, res) => {
+      if (!requireSession(req)) {
+        res.status(401).json({ error: "no session" });
+        return;
+      }
+      const boardId = validBoardId(req.params.boardId);
+      if (!boardId) {
+        res.status(400).json({ error: "bad boardId" });
+        return;
+      }
+      const scene = req.body as unknown;
+      if (!validBoardDoc(scene)) {
+        res.status(400).json({ error: "bad scene" });
+        return;
+      }
+      try {
+        await saveBoardScene(boardId, scene);
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(502).json({ error: e instanceof Error ? e.message : e });
+      }
+    },
+  );
 
   // Administración de roles (solo admin). Ver la columna `role` de la tabla `users`.
   r.get("/api/admin/users", async (req, res) => {

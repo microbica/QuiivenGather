@@ -13,6 +13,7 @@ import { AdminPanel } from "./ui/AdminPanel";
 import { AdminPage } from "./ui/AdminPage";
 import { ProfilePanel } from "./ui/ProfilePanel";
 import { ReminderToasts } from "./ui/ReminderToasts";
+import { makeBoardNet } from "./game/boards";
 import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
 import { getStatus, startOAuth, type CalendarEvent, type GoogleStatus } from "./api/google";
 import { isLive } from "./calendar/eventTime";
@@ -261,6 +262,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           obj={activeObject}
           liveMeetUrl={meetUrl}
           calendarMeets={reminders.upcoming}
+          boardNet={makeBoardNet(() => net.getRoom(), net.sendBoardScene, activeObject.id)}
           onPublishMeet={onPublishMeet}
           onClose={() => setActiveObject(null)}
         />

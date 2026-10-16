@@ -130,6 +130,42 @@ export function sanitizeStatus(s: unknown): string {
     : "available";
 }
 
+/** Pizarras colaborativas (mirror de apps/web game/boards.ts). */
+export const BOARD_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export const BOARD_MAX_ELEMENTS = 5000;
+
+export function validBoardId(id: unknown): string | null {
+  return typeof id === "string" && BOARD_ID_RE.test(id) ? id : null;
+}
+
+/** Documento de escena Excalidraw mínimo: objeto con elements acotado. */
+export function validBoardDoc(scene: unknown): boolean {
+  if (!scene || typeof scene !== "object" || Array.isArray(scene)) return false;
+  const elements = (scene as { elements?: unknown }).elements;
+  return Array.isArray(elements) && elements.length <= BOARD_MAX_ELEMENTS;
+}
+
+export interface BoardSceneMsg {
+  boardId: string;
+  elements: readonly unknown[];
+}
+
+/**
+ * Valida el relay de pizarra: id conocido y elementos acotados.
+ * El contenido se reenvía opaco (igual que la señalización WebRTC).
+ */
+export function sanitizeBoardScene(msg: {
+  boardId?: unknown;
+  elements?: unknown;
+}): BoardSceneMsg | null {
+  const boardId = validBoardId(msg?.boardId);
+  if (!boardId) return null;
+  if (!Array.isArray(msg.elements) || msg.elements.length > BOARD_MAX_ELEMENTS) {
+    return null;
+  }
+  return { boardId, elements: msg.elements };
+}
+
 /** Trim + cap zone ids reportadas por el cliente (max 32 chars). */
 export function sanitizeZone(zone: unknown): string {
   if (typeof zone !== "string") return "";

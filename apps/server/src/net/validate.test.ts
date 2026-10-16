@@ -3,11 +3,13 @@ import { MAP_H, MAP_W, PLAYER_H, PLAYER_W } from "@quiiven/protocol";
 import {
   clampMove,
   sanitizeAvatarMsg,
+  sanitizeBoardScene,
   sanitizeChat,
   sanitizeName,
   sanitizeStatus,
   sanitizeZone,
   validAnim,
+  validBoardDoc,
   validDir,
   validKind,
   validMaterial,
@@ -165,5 +167,29 @@ describe("presencia", () => {
     expect(sanitizeStatus("invisible")).toBe("available");
     expect(sanitizeStatus(42)).toBe("available");
     expect(sanitizeStatus(undefined)).toBe("available");
+  });
+});
+
+describe("pizarra colaborativa", () => {
+  it("validBoardDoc acepta escenas con elements acotado", () => {
+    expect(validBoardDoc({ type: "excalidraw", version: 2, elements: [] })).toBe(true);
+    expect(validBoardDoc({ elements: [{}, {}] })).toBe(true);
+    expect(validBoardDoc({})).toBe(false);
+    expect(validBoardDoc(null)).toBe(false);
+    expect(validBoardDoc([])).toBe(false);
+    expect(validBoardDoc({ elements: "nope" })).toBe(false);
+    expect(validBoardDoc({ elements: Array(5001).fill({}) })).toBe(false);
+    expect(validBoardDoc({ elements: Array(5000).fill({}) })).toBe(true);
+  });
+
+  it("sanitizeBoardScene valida id y elements", () => {
+    expect(sanitizeBoardScene({ boardId: "board-1", elements: [{ id: "a" }] })).toEqual({
+      boardId: "board-1",
+      elements: [{ id: "a" }],
+    });
+    expect(sanitizeBoardScene({ boardId: "bad id!", elements: [] })).toBeNull();
+    expect(sanitizeBoardScene({ boardId: "x", elements: Array(5001).fill({}) })).toBeNull();
+    expect(sanitizeBoardScene({ boardId: "x", elements: null })).toBeNull();
+    expect(sanitizeBoardScene({})).toBeNull();
   });
 });
