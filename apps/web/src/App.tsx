@@ -14,6 +14,9 @@ import { AdminPage } from "./ui/AdminPage";
 import { ProfilePanel } from "./ui/ProfilePanel";
 import { ReminderToasts } from "./ui/ReminderToasts";
 import { makeBoardNet } from "./game/boards";
+import { DeskPanel } from "./ui/DeskPanel";
+import { defaultDesk, loadDesk, saveDesk, type DeskCustom } from "./avatar/desk";
+import type { DeskAction } from "./game/GameCanvas";
 import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
 import { getStatus, startOAuth, type CalendarEvent, type GoogleStatus } from "./api/google";
 import { isLive } from "./calendar/eventTime";
@@ -124,6 +127,22 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
+  // "Mi escritorio": one claimed desk per person (saved in this browser for now).
+  const [myDesk, setMyDesk] = React.useState<DeskCustom | null>(() => loadDesk());
+  const [deskDraft, setDeskDraft] = React.useState<DeskCustom | null>(null);
+  const [deskPanel, setDeskPanel] = React.useState<{ roomName: string } | null>(null);
+  const onDeskAction = React.useCallback(
+    (a: DeskAction) => {
+      if (a.type === "claim") {
+        // Keep your decoration when moving to another desk.
+        const next = myDesk ? { ...myDesk, deskId: a.deskId } : defaultDesk(a.deskId);
+        setMyDesk(next);
+        saveDesk(next);
+      }
+      setDeskPanel({ roomName: a.roomName });
+    },
+    [myDesk],
+  );
   const saveProfile = React.useCallback((cfg: AvatarConfig) => {
     saveAvatar(cfg);
     setAvatar(cfg);
@@ -245,8 +264,31 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           </svg>
         </button>
       )}
-      <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} myDesk={deskDraft ?? myDesk} onDeskAction={onDeskAction} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
       <ReminderToasts toasts={reminders.toasts} events={calendarEvents} onDismiss={reminders.dismiss} onJoinMeet={onJoinMeet} />
+      {deskPanel && myDesk && (
+        <DeskPanel
+          value={myDesk}
+          roomName={deskPanel.roomName}
+          onPreview={setDeskDraft}
+          onSave={(d) => {
+            setMyDesk(d);
+            saveDesk(d);
+            setDeskDraft(null);
+            setDeskPanel(null);
+          }}
+          onRelease={() => {
+            setMyDesk(null);
+            saveDesk(null);
+            setDeskDraft(null);
+            setDeskPanel(null);
+          }}
+          onClose={() => {
+            setDeskDraft(null);
+            setDeskPanel(null);
+          }}
+        />
+      )}
       {profileOpen && (
         <ProfilePanel
           name={name}
@@ -257,7 +299,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           onClose={closeProfile}
         />
       )}
-      {activeObject && !profileOpen && (
+      {activeObject && !profileOpen && !deskPanel && (
         <SmartObjectModal
           obj={activeObject}
           liveMeetUrl={meetUrl}

@@ -3,6 +3,7 @@ import { buildInteractables, nearestInteractable } from "./interactions";
 import type { DecorItem } from "./mapLoader";
 
 const item = (type: string, x: number, y: number, w: number, h: number, props: Record<string, string> = {}): DecorItem => ({
+  id: x * 1000 + y,
   type,
   label: "",
   props,
@@ -21,6 +22,8 @@ describe("interactions", () => {
     expect(list.filter((i) => i.id.startsWith("chair"))).toHaveLength(1);
     expect(list.filter((i) => i.id.startsWith("sofa"))).toHaveLength(4);
     expect(list.some((i) => i.id.startsWith("desk"))).toBe(false);
+    // The desk chair knows which desk it belongs to (for "Mi escritorio").
+    expect(list.find((i) => i.id.startsWith("chair"))?.deskId).toBe(32);
   });
 
   it("coffee, water and mats map to their activities", () => {
