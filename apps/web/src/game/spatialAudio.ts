@@ -50,9 +50,14 @@ export class SpatialAudio {
     }
   }
 
-  setMuted(id: string, muted: boolean): void {
+  /** Playback level per peer: 1 normal, 0.5 busy, 0 bloqueado por estado. */
+  setLevel(id: string, level: number): void {
     const p = this.peers.get(id);
-    if (p) p.gain.gain.value = muted ? 0 : 1;
+    if (p) p.gain.gain.value = level;
+  }
+
+  setMuted(id: string, muted: boolean): void {
+    this.setLevel(id, muted ? 0 : 1);
   }
 
   detach(id: string): void {

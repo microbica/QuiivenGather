@@ -1,3 +1,4 @@
+import type { CalendarEvent } from "../api/google";
 import type { ReminderToast } from "../game/useMeetingReminders";
 
 function kindLabel(t: ReminderToast): string {
@@ -9,10 +10,15 @@ function kindLabel(t: ReminderToast): string {
 /** Avisos de reunión: tarjeta con título, hora y enlace (no se autocierran). */
 export function ReminderToasts({
   toasts,
+  events,
   onDismiss,
+  onJoinMeet,
 }: {
   toasts: ReminderToast[];
+  /** Eventos para resolver el "Ir al Meet" (el padre pone "En reunión"). */
+  events: CalendarEvent[];
   onDismiss: (key: string) => void;
+  onJoinMeet?: (e: CalendarEvent) => void;
 }) {
   if (toasts.length === 0) return null;
   return (
@@ -58,6 +64,12 @@ export function ReminderToasts({
               href={t.url}
               target="_blank"
               rel="noreferrer"
+              onClick={() => {
+                if (t.isMeet) {
+                  const e = events.find((ev) => ev.id === t.eventId);
+                  if (e) onJoinMeet?.(e);
+                }
+              }}
             >
               {t.isMeet ? "Ir al Meet ↗" : "Ver en Calendar ↗"}
             </a>

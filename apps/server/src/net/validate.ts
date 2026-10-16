@@ -120,6 +120,16 @@ export function validSignal(
   return { to: msg.to, kind: msg.kind, sdp: msg.sdp, candidate: msg.candidate };
 }
 
+/** Estados de presencia (mirror de apps/web game/status.ts). */
+export const STATUSES = ["available", "meeting", "busy", "focus", "away"] as const;
+
+/** Allowlist de presencia; lo desconocido cae a "available". */
+export function sanitizeStatus(s: unknown): string {
+  return typeof s === "string" && (STATUSES as readonly string[]).includes(s)
+    ? s
+    : "available";
+}
+
 /** Trim + cap zone ids reportadas por el cliente (max 32 chars). */
 export function sanitizeZone(zone: unknown): string {
   if (typeof zone !== "string") return "";

@@ -13,6 +13,8 @@ export function useCalendarEvents() {
   const [events, setEvents] = React.useState<CalendarEvent[]>([]);
   const [syncing, setSyncing] = React.useState(false);
   const [lastSyncAt, setLastSyncAt] = React.useState<number | null>(null);
+  /** True tras el primer intento (sirve para no revertir estados con datos viejos). */
+  const [loaded, setLoaded] = React.useState(false);
 
   const refresh = React.useCallback(async () => {
     setSyncing(true);
@@ -22,6 +24,7 @@ export function useCalendarEvents() {
     } catch {
       setEvents([]);
     } finally {
+      setLoaded(true);
       setSyncing(false);
     }
   }, []);
@@ -34,5 +37,5 @@ export function useCalendarEvents() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  return { events, refreshEvents: refresh, syncing, lastSyncAt };
+  return { events, refreshEvents: refresh, syncing, lastSyncAt, loaded };
 }

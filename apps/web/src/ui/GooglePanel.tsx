@@ -22,12 +22,14 @@ interface Props {
   onEnableNotifications: () => void;
   /** Refresca los eventos tras crear/desvincular. */
   onChanged: () => void;
+  /** El usuario entra a un Meet (el padre decide si pone "En reunión"). */
+  onJoinMeet?: (e: CalendarEvent) => void;
 }
 
 /** Clics dentro de esta ventana no re-consultan: ya está sincronizado. */
 const SYNC_COOLDOWN_MS = 60_000;
 
-export function GooglePanel({ events, now, syncing, lastSyncAt, notifyPermission, onEnableNotifications, onChanged }: Props) {
+export function GooglePanel({ events, now, syncing, lastSyncAt, notifyPermission, onEnableNotifications, onChanged, onJoinMeet }: Props) {
   const [status, setStatus] = React.useState<GoogleStatus | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<string>("");
@@ -283,7 +285,7 @@ export function GooglePanel({ events, now, syncing, lastSyncAt, notifyPermission
                   )}
                   <span style={{ marginTop: 3 }}>
                     {e.hangoutLink ? (
-                      <a className="q-btn q-btn--primary q-btn--sm" href={e.hangoutLink} target="_blank" rel="noreferrer">
+                      <a className="q-btn q-btn--primary q-btn--sm" href={e.hangoutLink} target="_blank" rel="noreferrer" onClick={() => onJoinMeet?.(e)}>
                         Ir al Meet ↗
                       </a>
                     ) : (

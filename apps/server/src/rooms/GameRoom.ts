@@ -15,6 +15,7 @@ import {
   sanitizeAvatarMsg,
   sanitizeChat,
   sanitizeName,
+  sanitizeStatus,
   sanitizeZone,
   validAnim,
   validDir,
@@ -146,6 +147,11 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("avatar", (client, msg: AvatarMsg) => {
       const p = this.state.players.get(client.sessionId);
       if (p) this.applyAvatar(p, msg);
+    });
+    // Presencia: aro + insignia + compuertas de audio (validada por allowlist).
+    this.onMessage("status", (client, msg: { status?: unknown }) => {
+      const p = this.state.players.get(client.sessionId);
+      if (p) p.status = sanitizeStatus(msg?.status);
     });
     // Fase 3: relay de señalización WebRTC (SDP/ICE). Solo metadata por TCP;
     // nunca media. El servidor no inspecciona el contenido.

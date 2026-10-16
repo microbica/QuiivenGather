@@ -3,6 +3,7 @@ import { Client, getStateCallbacks } from "colyseus.js";
 import type { Room } from "colyseus.js";
 import type { GameState } from "@quiiven/protocol";
 import type { AvatarConfig } from "../avatar/config";
+import type { PresenceStatus } from "./status";
 import type { SmartObject } from "./objects";
 
 export interface MoveOut {
@@ -31,6 +32,8 @@ export interface NetHandle {
   sendMove(m: MoveOut): void;
   /** Publica el avatar visible (se valida en servidor y lo ven los demás). */
   sendAvatar(cfg: AvatarConfig): void;
+  /** Publica el estado de presencia (allowlist en servidor). */
+  sendStatus(status: PresenceStatus): void;
   sendSetMeet(url: string): void;
   sendObjMove(id: string, x: number, y: number): void;
   sendObjAdd(
@@ -95,6 +98,7 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
           sessionId: null,
           sendMove: () => undefined,
           sendAvatar: () => undefined,
+          sendStatus: () => undefined,
           sendSetMeet: (url) => setMeetUrl(url),
           sendObjMove: (id, x, y) => setObjects((list) => list.map((o) => (o.id === id ? { ...o, x, y } : o))),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
@@ -125,6 +129,7 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
           sessionId: null,
           sendMove: (m) => roomRef.current?.send("move", m),
           sendAvatar: (cfg) => roomRef.current?.send("avatar", { ...cfg }),
+          sendStatus: (status) => roomRef.current?.send("status", { status }),
           sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
           sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>

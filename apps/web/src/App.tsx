@@ -14,7 +14,9 @@ import { AdminPage } from "./ui/AdminPage";
 import { ProfilePanel } from "./ui/ProfilePanel";
 import { ReminderToasts } from "./ui/ReminderToasts";
 import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
-import { getStatus, startOAuth, type GoogleStatus } from "./api/google";
+import { getStatus, startOAuth, type CalendarEvent, type GoogleStatus } from "./api/google";
+import { isLive } from "./calendar/eventTime";
+import { type PresenceStatus } from "./game/status";
 
 function displayName(email: string): string {
   const local = email.split("@")[0] ?? email;
@@ -104,7 +106,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   const [nearby, setNearby] = React.useState<string[]>([]);
   const [activeObject, setActiveObject] = React.useState<SmartObject | null>(null);
   // Calendario a nivel de app (panel abierto o no) + avisos 15'/5'/ahora.
-  const { events: calendarEvents, refreshEvents, syncing: calSyncing, lastSyncAt: calSyncAt } = useCalendarEvents();
+  const { events: calendarEvents, refreshEvents, syncing: calSyncing, lastSyncAt: calSyncAt, loaded: calLoaded } = useCalendarEvents();
   const reminders = useMeetingReminders(calendarEvents);
   const refreshCalendar = React.useCallback(() => {
     void refreshEvents();
@@ -130,6 +132,38 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   }, []);
   const { status, roster, messages, sendChat, net, meetUrl, objects } = useColyseusRoom(name, { avatar });
   const voice = useMeshVoice(net);
+
+  // Presencia: se publica al servidor (aro + insignia + audio de los demás).
+  const [myStatus, setMyStatusState] = React.useState<PresenceStatus>("available");
+  // Solo revierte el "En reunión" que puso el auto-join (el manual persiste).
+  const autoMeetingRef = React.useRef(false);
+  const setMyStatus = React.useCallback((s: PresenceStatus) => {
+    if (s !== "meeting") autoMeetingRef.current = false;
+    setMyStatusState(s);
+    net.sendStatus(s);
+  }, [net]);
+
+  // Micrófono: focus/meeting/away lo apagan (además del botón manual de voz).
+  React.useEffect(() => {
+    voice.setStatusMuted(myStatus === "focus" || myStatus === "meeting" || myStatus === "away");
+  }, [myStatus, voice.setStatusMuted]);
+
+  // "Ir al Meet" pone "En reunión" solo si el evento está en curso.
+  const onJoinMeet = React.useCallback((e: CalendarEvent) => {
+    if (isLive(e, Date.now())) {
+      autoMeetingRef.current = true;
+      setMyStatus("meeting");
+    }
+  }, [setMyStatus]);
+
+  // El "En reunión" automático se revierte solo cuando ya no hay evento en curso.
+  React.useEffect(() => {
+    if (myStatus !== "meeting" || !autoMeetingRef.current || !calLoaded) return;
+    if (!calendarEvents.some((e) => isLive(e, reminders.now))) {
+      autoMeetingRef.current = false;
+      setMyStatus("available");
+    }
+  }, [myStatus, calLoaded, calendarEvents, reminders.now, setMyStatus]);
 
   // Publica el avatar real para que los demás vean tu skin (también al guardarlo).
   React.useEffect(() => {
@@ -169,6 +203,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
             notifyPermission={reminders.permission}
             onEnableNotifications={() => void reminders.requestPermission()}
             onChanged={refreshCalendar}
+            onJoinMeet={onJoinMeet}
           />
         )}
         <Sidebar
@@ -209,8 +244,8 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           </svg>
         </button>
       )}
-      <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} />
-      <ReminderToasts toasts={reminders.toasts} onDismiss={reminders.dismiss} />
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
+      <ReminderToasts toasts={reminders.toasts} events={calendarEvents} onDismiss={reminders.dismiss} onJoinMeet={onJoinMeet} />
       {profileOpen && (
         <ProfilePanel
           name={name}

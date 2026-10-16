@@ -16,6 +16,8 @@ import { AVATAR_H, gridToCanvas, paintAvatar, paintFace, type Facing, type Frame
 import { paintPet } from "../avatar/pets";
 import { ANIM_BY_ACTIVITY, buildInteractables, nearestInteractable, type Interactable } from "./interactions";
 import type { SpatialAudio } from "./spatialAudio";
+import { canHear, gainFor, normalizeStatus, STATUSES, STATUS_META, type PresenceStatus } from "./status";
+import { StatusIcon } from "../ui/StatusIcon";
 import type { NetHandle, NetStatus } from "./useColyseus";
 
 const SPEED = CLIENT_SPEED;
@@ -53,13 +55,16 @@ interface Remote {
   c: Container;
   pet: Container;
   label: Text;
-  ring: Graphics;
   view: AvatarView;
   cx: number;
   cy: number;
   connected: boolean;
   /** Cache key of the last applied avatar (skin/clothes/pet sync). */
   akey: string;
+  /** Last presence status painted (ring + badge). */
+  statusKey: string;
+  /** Last playback level applied (audio gate by status). */
+  level: number;
 }
 
 /** Real avatar published by a remote player; falls back to safe defaults. */
@@ -198,6 +203,10 @@ interface AvatarView {
   /** dir = down/up/left/right; walking animates the legs; pose comes from furniture. */
   setPose(dir: string, walking: boolean, nowMs: number, pose?: Pose): void;
   setConfig(cfg: AvatarConfig): void;
+  /** Proximity ring (green when connected, status color otherwise). */
+  setConnected(connected: boolean): void;
+  /** Presence: status-colored ring + badge glyph; away dims the avatar. */
+  setStatus(s: PresenceStatus): void;
   /** Moves the pet toward a spot next to/behind the owner's feet. */
   followPet(feetX: number, feetY: number, dir: string, idle: boolean, dt: number, nowMs: number): void;
 }
@@ -226,9 +235,13 @@ function makeAvatar(cfg: AvatarConfig, name: string): AvatarView {
   label.position.set(BODY_W / 2, labelY);
   // Carbón pill behind the name so it reads on any floor.
   const pill = new Graphics();
+  // Presence dot: status color at the start of the name.
+  const dot = new Graphics();
+  dot.visible = false;
   const fitPill = () => {
     const w = label.width + 14;
     pill.clear().roundRect(BODY_W / 2 - w / 2, labelY - label.height - 3, w, label.height + 6, 9).fill({ color: 0x2c2c33, alpha: 0.88 });
+    dot.position.set(BODY_W / 2 - w / 2 - 9, labelY - label.height / 2 - 1);
   };
   fitPill();
   requestAnimationFrame(fitPill);
@@ -248,7 +261,7 @@ function makeAvatar(cfg: AvatarConfig, name: string): AvatarView {
   bubble.addChild(bubbleBg, bubbleIcon);
   bubble.position.set(BODY_W / 2, labelY - 22);
   bubble.visible = false;
-  c.addChild(shadow, ring, sprite, nub, pill, label, bubble);
+  c.addChild(shadow, ring, sprite, nub, pill, label, dot, bubble);
 
   const pet = new Container();
   const petSprite = new Sprite(petTexture(cfg, false, 0));
@@ -261,12 +274,40 @@ function makeAvatar(cfg: AvatarConfig, name: string): AvatarView {
 
   let current = cfg;
   let shown = "front|0|stand";
+  let conn = false;
+  let st: PresenceStatus = "available";
+  const paintPresence = () => {
+    ring.clear();
+    if (st !== "available") {
+      ring.ellipse(BODY_W / 2, BODY_H + 1, 15, 6).stroke({ color: STATUS_META[st].colorNum, width: 2 });
+    } else if (conn) {
+      ring.ellipse(BODY_W / 2, BODY_H + 1, 15, 6).stroke({ color: 0x18d3b8, width: 2 });
+    }
+    // Ausente: avatar atenuado.
+    sprite.alpha = st === "away" ? 0.55 : 1;
+    // Punto al inicio del nombre (oculto en Disponible).
+    dot.clear();
+    if (st !== "available") {
+      dot.circle(0, 0, 4).fill({ color: STATUS_META[st].colorNum });
+    }
+    dot.visible = st !== "available";
+  };
   return {
     c,
     label,
     nub,
     ring,
     pet,
+    setConnected(b) {
+      if (b === conn) return;
+      conn = b;
+      paintPresence();
+    },
+    setStatus(s) {
+      if (s === st) return;
+      st = s;
+      paintPresence();
+    },
     setPose(dir, walking, nowMs, pose = "stand") {
       const facing = FACING_BY_DIR[dir] ?? "front";
       const frame: Frame =
@@ -319,13 +360,6 @@ function makeAvatar(cfg: AvatarConfig, name: string): AvatarView {
   };
 }
 
-function paintRing(ring: Graphics, connected: boolean) {
-  ring.clear();
-  ring
-    .ellipse(BODY_W / 2, BODY_H + 1, 15, 6)
-    .stroke({ color: connected ? 0x18d3b8 : 0x2c2c33, width: 2, alpha: connected ? 1 : 0 });
-}
-
 interface ObjMarker {
   c: Container;
   id: string;
@@ -339,7 +373,7 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio }: { name: string; avatar: AvatarConfig; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null }) {
+export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   /** Set by the E key or the hint button; consumed by the game loop. */
   const interactRef = React.useRef(false);
@@ -350,6 +384,9 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
   nameRef.current = name;
   const onNearbyRef = React.useRef(onNearby);
   onNearbyRef.current = onNearby;
+  // Own presence for the audio gate + local ring (ref: read inside the ticker).
+  const myStatusRef = React.useRef<PresenceStatus>("available");
+  myStatusRef.current = normalizeStatus(myStatus);
   const onObjectRef = React.useRef(onObject);
   onObjectRef.current = onObject;
   const onPositionRef = React.useRef(onPosition);
@@ -381,6 +418,9 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
       return "";
     }
   }, [avatar]);
+  // Pill de estado del topbar: muestra el actual y se expande a la derecha.
+  const [statusOpen, setStatusOpen] = React.useState(false);
+  const statusMeta = STATUS_META[normalizeStatus(myStatus)];
 
   React.useEffect(() => {
     let cancelled = false;
@@ -600,6 +640,7 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
       let activityUntil = 0;
       let beforeActivity = { x: 0, y: 0 };
       let lastHintKey = "";
+      let lastOwnStatus: PresenceStatus = "available";
 
       // Debug overlay: collisions (red) + zones (blue).
       const overlay = new Graphics();
@@ -744,6 +785,11 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
         }
         if (local.label.text !== nameRef.current) setLabel(local.label, nameRef.current);
         local.setConfig(avatarRef.current);
+        // Own presence ring + badge (only repaints on change).
+        if (myStatusRef.current !== lastOwnStatus) {
+          lastOwnStatus = myStatusRef.current;
+          local.setStatus(lastOwnStatus);
+        }
         local.setPose(dir, anim === "walk", nowMs, poseFromAnim(anim));
         local.followPet(pos.x + BODY_W / 2, pos.y + BODY_H, dir, anim !== "walk", dt, nowMs);
         // Hint for the nearest usable furniture (or how to get up).
@@ -789,8 +835,7 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
               // Skin real publicada por el jugador (con fallback seguro).
               const cfg = avatarFromPlayer(p);
               const built = makeAvatar(cfg, p.name);
-              r = { c: built.c, pet: built.pet, label: built.label, ring: built.ring, view: built, cx: p.x, cy: p.y, connected: false, akey: avatarKey(cfg) };
-              paintRing(r.ring, false);
+              r = { c: built.c, pet: built.pet, label: built.label, view: built, cx: p.x, cy: p.y, connected: false, akey: avatarKey(cfg), statusKey: "", level: -1 };
               avatarC.addChild(r.c, r.pet);
               remotes.set(id, r);
             }
@@ -821,7 +866,19 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
             );
             if (connected !== r.connected) {
               r.connected = connected;
-              paintRing(r.ring, connected);
+              r.view.setConnected(connected);
+            }
+            // Presencia: aro + insignia por estado; el audio sigue esas reglas.
+            const pst = normalizeStatus(p.status);
+            if (pst !== r.statusKey) {
+              r.statusKey = pst;
+              r.view.setStatus(pst);
+            }
+            // Puerta de audio: sordo propio o peer bloqueado → 0; busy → 0.5.
+            const lvl = canHear(myStatusRef.current) ? gainFor(pst) : 0;
+            if (lvl !== r.level) {
+              r.level = lvl;
+              audioRef.current?.setLevel(id, lvl);
             }
             if (connected) connectedIds.push(id);
             // Audio espacial: posición relativa al oyente (Fase 3).
@@ -919,6 +976,78 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
       <div className="q-panel q-topbar">
         <img src={`${import.meta.env.BASE_URL}brand/logo-color.png`} alt="Quiiven" />
+        <div style={{ position: "relative", pointerEvents: "auto" }}>
+          <button
+            type="button"
+            onClick={() => setStatusOpen((v) => !v)}
+            aria-expanded={statusOpen}
+            aria-label={`Mi estado: ${statusMeta.label}. Cambiar estado`}
+            title="Cambiar mi estado"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 8, border: "1px solid var(--q-line)", background: "var(--q-card, #fff)", fontSize: 12, fontWeight: 600, cursor: "pointer", color: "inherit" }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: statusMeta.color }} aria-hidden="true" />
+            {statusMeta.label}
+            <span style={{ fontSize: 10, opacity: 0.6 }} aria-hidden="true">{statusOpen ? "▴" : "▾"}</span>
+          </button>
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: "calc(100% + 6px)",
+              zIndex: 40,
+              overflow: "hidden",
+              maxWidth: statusOpen ? 360 : 0,
+              opacity: statusOpen ? 1 : 0,
+              transition: "max-width 0.25s ease, opacity 0.2s ease",
+            }}
+          >
+            <div className="q-panel" role="radiogroup" aria-label="Mi estado" style={{ display: "flex", gap: 4, padding: 6, width: "max-content" }}>
+              {STATUSES.map((id) => {
+                const meta = STATUS_META[id];
+                const on = id === statusMeta.id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    title={`${meta.label}: ${meta.desc}`}
+                    onClick={() => {
+                      onStatusChange?.(id);
+                      setStatusOpen(false);
+                    }}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 3,
+                      minWidth: 58,
+                      padding: "6px 4px",
+                      borderRadius: 8,
+                      border: `1px solid ${on ? meta.color : "var(--q-line)"}`,
+                      boxShadow: on ? `0 0 0 1px ${meta.color}` : "none",
+                      background: "transparent",
+                      color: meta.color,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <StatusIcon id={id} size={16} />
+                    <span style={{ color: "inherit" }}>{meta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        {statusOpen && (
+          <div
+            onClick={() => setStatusOpen(false)}
+            aria-hidden="true"
+            style={{ position: "fixed", inset: 0, zIndex: 30, pointerEvents: "auto" }}
+          />
+        )}
         <span className="q-zone">
           {hud.area && <span className={`q-area-dot q-area-dot--${hud.area}`} aria-hidden="true" />}
           {hud.zone === "—" ? "Pasillo" : <strong>{hud.zone.replace(/ \(.*\)$/, "")}</strong>}
@@ -934,10 +1063,16 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
           onClick={() => onEditProfile?.()}
           title="Mi avatar (editar perfil)"
           aria-label="Editar mi avatar"
-          style={{ marginLeft: "auto", pointerEvents: "auto", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, border: "1px solid var(--q-line)", background: "transparent", cursor: "pointer", overflow: "hidden", padding: 0 }}
+          style={{ marginLeft: "auto", pointerEvents: "auto", position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, border: "1px solid var(--q-line)", background: "transparent", cursor: "pointer", overflow: "hidden", padding: 0 }}
         >
           {avatarIcon && (
             <img src={avatarIcon} alt="" width={20} height={20} style={{ imageRendering: "pixelated", display: "block" }} />
+          )}
+          {myStatus && normalizeStatus(myStatus) !== "available" && (
+            <span
+              title={STATUS_META[normalizeStatus(myStatus)].label}
+              style={{ position: "absolute", right: 2, bottom: 2, width: 8, height: 8, borderRadius: "50%", background: STATUS_META[normalizeStatus(myStatus)].color, border: "1px solid #fff" }}
+            />
           )}
         </button>
         <button

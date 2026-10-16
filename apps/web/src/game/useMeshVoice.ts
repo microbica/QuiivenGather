@@ -26,6 +26,8 @@ export function useMeshVoice(net: NetHandle) {
   const audioRef = React.useRef<SpatialAudio | null>(null);
   if (!audioRef.current) audioRef.current = new SpatialAudio();
   const meshRef = React.useRef<MeshVoice | null>(null);
+  // El micrófono se apaga por botón manual O por estado (focus/meeting/away).
+  const micMuteRef = React.useRef({ manual: false, status: false });
 
   const start = React.useCallback(async () => {
     const room = net.getRoom();
@@ -81,12 +83,26 @@ export function useMeshVoice(net: NetHandle) {
     [net, stop],
   );
 
+  const applyMicMute = React.useCallback(() => {
+    meshRef.current?.setMuted("audio", micMuteRef.current.manual || micMuteRef.current.status);
+  }, []);
+
   const toggleAudio = React.useCallback(() => {
     setMutedAudio((m) => {
-      meshRef.current?.setMuted("audio", !m);
+      micMuteRef.current.manual = !m;
+      applyMicMute();
       return !m;
     });
-  }, []);
+  }, [applyMicMute]);
+
+  /** La App lo llama con el estado de presencia (focus/meeting/away → mic off). */
+  const setStatusMuted = React.useCallback(
+    (muted: boolean) => {
+      micMuteRef.current.status = muted;
+      applyMicMute();
+    },
+    [applyMicMute],
+  );
 
   const toggleVideo = React.useCallback(() => {
     setMutedVideo((m) => {
@@ -117,5 +133,6 @@ export function useMeshVoice(net: NetHandle) {
     syncPeers,
     toggleAudio,
     toggleVideo,
+    setStatusMuted,
   };
 }

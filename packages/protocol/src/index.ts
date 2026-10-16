@@ -43,6 +43,12 @@ export class Player extends Schema {
   @type("string") pet = "";
   @type("string") petColor = "";
   @type(["string"]) accessories = new ArraySchema<string>();
+  /**
+   * Presencia: available | meeting | busy | focus | away. La publica el
+   * cliente y el servidor la valida; el aro, la insignia y el audio
+   * de proximidad la consumen. "" o desconocido = available.
+   */
+  @type("string") status = "available";
 }
 
 /**

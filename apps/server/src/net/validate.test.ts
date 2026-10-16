@@ -5,6 +5,7 @@ import {
   sanitizeAvatarMsg,
   sanitizeChat,
   sanitizeName,
+  sanitizeStatus,
   sanitizeZone,
   validAnim,
   validDir,
@@ -150,5 +151,19 @@ describe("avatar visible", () => {
     const a = sanitizeAvatarMsg(undefined);
     expect(a.body).toBe("");
     expect(a.accessories).toEqual([]);
+  });
+});
+
+describe("presencia", () => {
+  it("sanitizeStatus acepta los 5 estados", () => {
+    for (const s of ["available", "meeting", "busy", "focus", "away"]) {
+      expect(sanitizeStatus(s)).toBe(s);
+    }
+  });
+
+  it("sanitizeStatus cae a available con basura", () => {
+    expect(sanitizeStatus("invisible")).toBe("available");
+    expect(sanitizeStatus(42)).toBe("available");
+    expect(sanitizeStatus(undefined)).toBe("available");
   });
 });
