@@ -84,6 +84,12 @@ jobs:
       - name: Desplegar con Docker Compose
         run: docker compose up --build -d
 
+      - name: Recargar Caddy (relee el Caddyfile montado)
+        # El container de caddy no se recrea si su definición no cambia, y el
+        # watch de archivo puede perderse tras un `git checkout`. Forzar reload
+        # garantiza que la nueva config (rutas /matchmake, etc.) entré en vivo.
+        run: docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+
       - name: Verificar despliegue
         run: |
           sleep 8
