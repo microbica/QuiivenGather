@@ -862,16 +862,28 @@ input {
   gap: 6px;
   filter: drop-shadow(0 18px 18px rgba(44, 44, 51, 0.18));
 }
-.q-desk-chair {
-  order: 2;
-  width: 88px;
-  height: 52px;
-  border-radius: 18px;
-  border: 6px solid #4a4a55;
-  outline: 2px solid var(--q-carbon);
-}
 .q-thumbs--desk {
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+}
+.q-desk-thumb {
+  display: grid;
+  place-items: center;
+  height: 54px;
+}
+.q-desk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.q-desk-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(44, 44, 51, 0.3);
+  vertical-align: -1px;
 }
 
 /* ---------- Admin ---------- */

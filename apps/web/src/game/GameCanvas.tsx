@@ -18,7 +18,7 @@ import { drawDecor, drawFloor } from "./decor";
 import { avatarKey, sanitizeAvatar, type AvatarConfig } from "../avatar/config";
 import { AVATAR_H, gridToCanvas, paintAvatar, paintFace, type Facing, type Frame, type Pose } from "../avatar/render";
 import { paintPet } from "../avatar/pets";
-import { paintDesk, type DeskCustom } from "../avatar/desk";
+import { CHAIR_W, FLOOR_H, paintChair, paintDesk, paintFloor, type DeskCustom } from "../avatar/desk";
 import { ANIM_BY_ACTIVITY, buildInteractables, nearestInteractable, type Interactable } from "./interactions";
 import type { SpatialAudio } from "./spatialAudio";
 import { canHear, gainFor, normalizeStatus, STATUSES, STATUS_META, type PresenceStatus } from "./status";
@@ -519,25 +519,29 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, 
       decorC.addChild(myDeskC);
       const desksById = new Map(map.decor.filter((d) => d.type === "desk").map((d) => [d.id, d]));
       const renderMyDesk = () => {
-        for (const ch of myDeskC.removeChildren()) ch.destroy({ children: true });
+        // Own textures (not the shared cache), so they go with the sprites.
+        for (const ch of myDeskC.removeChildren()) ch.destroy({ children: true, texture: true, textureSource: true });
         const custom = myDeskRef.current;
         const desk = custom ? desksById.get(custom.deskId) : undefined;
         if (!custom || !desk) return;
         const facing = desk.props.facing === "up" ? "up" : "down";
         const glow = desk.props.color && /^#[0-9a-f]{6}$/i.test(desk.props.color) ? desk.props.color : "#18d3b8";
-        const tex = Texture.from(gridToCanvas(paintDesk(custom, facing, glow)));
-        tex.source.scaleMode = "nearest";
-        const sprite = new Sprite(tex);
-        sprite.position.set(desk.x, desk.y);
+        const pixelSprite = (grid: Parameters<typeof gridToCanvas>[0], x: number, y: number) => {
+          const tex = Texture.from(gridToCanvas(grid));
+          tex.source.scaleMode = "nearest";
+          const sp = new Sprite(tex);
+          sp.position.set(x, y);
+          sp.scale.set(2);
+          return sp;
+        };
+        const sprite = pixelSprite(paintDesk(custom, facing, glow), desk.x, desk.y);
         sprite.width = desk.w;
         sprite.height = desk.h;
-        // Chair recolored to the owner's choice (chair is one tile toward the person).
+        // Owner's chair (one tile toward the person) and the floor item beside it.
         const chairY = facing === "down" ? desk.y - desk.h : desk.y + desk.h;
-        const chair = new Graphics();
-        const cw = 22;
-        const cx = desk.x + (desk.w - cw) / 2;
-        chair.roundRect(cx, chairY + 9, cw, 14, 5).fill({ color: 0x4a4a55 }).stroke({ color: 0x2c2c33, width: 1 });
-        chair.roundRect(cx + 3, chairY + 12, cw - 6, 8, 3).fill({ color: parseInt(custom.chairColor.slice(1), 16) });
+        const chair = pixelSprite(paintChair(custom.chairStyle, custom.chairColor, facing), desk.x + (desk.w - CHAIR_W * 2) / 2, chairY + 6);
+        const floorItem = pixelSprite(paintFloor(custom.floor), desk.x - 4, chairY + desk.h - FLOOR_H * 2 + 2);
+        floorItem.visible = custom.floor !== "ninguno";
         // Name tag on the edge facing the chair.
         const tag = new Text({
           text: nameRef.current.split(" ")[0],
@@ -553,7 +557,7 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, 
         tagC.addChild(tagBg, tag);
         tag.position.set(5, 1);
         tagC.position.set(desk.x + desk.w / 2 - tagW / 2, facing === "down" ? desk.y - 6 : desk.y + desk.h - 7);
-        myDeskC.addChild(chair, sprite, tagC);
+        myDeskC.addChild(chair, floorItem, sprite, tagC);
       };
       renderDeskRef.current = renderMyDesk;
       renderMyDesk();
