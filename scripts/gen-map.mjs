@@ -535,6 +535,15 @@ map.nextobjectid = Math.max(nextId, ...decor.filter((d) => d.type === "desk").ma
 writeFileSync(new URL("../apps/web/public/maps/demo.tmj", import.meta.url), JSON.stringify(map));
 writeFileSync(new URL("../apps/web/public/walls.json", import.meta.url), JSON.stringify(wallsJson, null, 2));
 writeFileSync(new URL("../apps/web/public/objects.json", import.meta.url), JSON.stringify(smartObjects, null, 2));
+// Desks per team office (server: auto-assign a free desk of your team).
+const deskList = decor
+  .filter((d) => d.type === "desk" && !d.props.exec)
+  .map((d) => {
+    const z = zones.find((q) => d.x >= q.x && d.x < q.x + q.w && d.y >= q.y && d.y < q.y + q.h);
+    return { deskId: deskId(d), zone: z?.id ?? "", color: d.props.color ?? "" };
+  })
+  .filter((d) => d.zone && !d.zone.startsWith("cabina"));
+writeFileSync(new URL("../apps/web/public/desks.json", import.meta.url), JSON.stringify(deskList));
 const desksTotalX = decor.filter((d) => d.type === "desk").length;
 console.table(deskCount.map(([sala, personas, escritorios]) => ({ sala, personas, escritorios })));
 console.log(

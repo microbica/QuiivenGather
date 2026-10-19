@@ -56,6 +56,16 @@ Para cambiar el número de personas de un equipo se edita `people` en `scripts/g
 - El id de cada escritorio sale de su casilla (`100000 + x * 100 + y`), así que no cambia al regenerar el mapa mientras el escritorio no se mueva.
 - Un admin puede liberar el escritorio de alguien (`desk-release` con `deskId`).
 
+### Escritorio automático por equipo (Airtable)
+
+- La primera vez que alguien entra, el servidor busca su correo en Airtable (tabla *Usuarios*, solo activos y solo lectura) y le asigna el primer escritorio libre de la oficina de su equipo:
+  - Primero mira el **Equipo Comercial** o la **célula de Marketing**.
+  - Si no tiene, usa el **área**: Tech, Operaciones, Ventas (Dirección Comercial), Finanzas o Talento Humano.
+- La correspondencia equipo → oficina está en `apps/server/src/teams.ts`, con los ids de registro de Airtable. Si se crea un equipo o una célula nueva, se agrega ahí y se crea su oficina en el mapa.
+- Se asigna una sola vez por persona (tabla `desk_auto`): si después suelta o cambia su escritorio, no se le vuelve a asignar.
+- Necesita la variable `AIRTABLE_TOKEN`: un token personal de Airtable con permiso `data.records:read` sobre la base, guardado como secret `AIRTABLE_TOKEN` en GitHub. Sin token, la asignación automática queda apagada y todo lo demás funciona igual.
+- `scripts/gen-map.mjs` genera `apps/web/public/desks.json`, que dice a qué oficina pertenece cada escritorio.
+
 ## Zonas y audio
 
 - **Privadas** (solo se escuchan quienes están dentro): oficinas de equipo, salas de reuniones, cabinas, CEO y auditorio.

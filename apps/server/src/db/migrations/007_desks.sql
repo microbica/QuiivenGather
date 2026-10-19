@@ -7,3 +7,10 @@ CREATE TABLE IF NOT EXISTS desks (
   config JSONB NOT NULL DEFAULT '{}',
   updated_at BIGINT NOT NULL
 );
+
+-- Quién ya recibió su escritorio automático (por su equipo en Airtable), para
+-- no volver a asignarle uno si después lo suelta.
+CREATE TABLE IF NOT EXISTS desk_auto (
+  email TEXT PRIMARY KEY,
+  assigned_at BIGINT NOT NULL
+);

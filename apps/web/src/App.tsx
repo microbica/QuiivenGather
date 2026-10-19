@@ -140,7 +140,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
-  const { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent } = useColyseusRoom(name, { avatar });
+  const { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent, deskAssigned } = useColyseusRoom(name, { avatar });
 
   // "Mi escritorio": desks are claimed on the server, one per person, so
   // everybody sees whose desk is whose and nobody can take a claimed one.
@@ -176,11 +176,14 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
   const [zones, setZones] = React.useState<Zone[]>([]);
   const [currentZone, setCurrentZone] = React.useState<Zone | null>(null);
   const [occupancy, setOccupancy] = React.useState<Record<string, number>>({});
-  const [toast, setToast] = React.useState<{ text: string; ts: number } | null>(null);
-  const say = React.useCallback((text: string) => setToast({ text, ts: Date.now() }), []);
+  const [toast, setToast] = React.useState<{ text: string; ts: number; action?: { label: string; run: () => void } } | null>(null);
+  const say = React.useCallback(
+    (text: string, action?: { label: string; run: () => void }) => setToast({ text, ts: Date.now(), action }),
+    [],
+  );
   React.useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 4500);
+    const t = window.setTimeout(() => setToast(null), toast.action ? 12000 : 4500);
     return () => window.clearTimeout(t);
   }, [toast]);
   /** Room whose Meet was already opened on this visit (no double tabs). */
@@ -223,6 +226,17 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     } else say(`🔒 ${z?.label ?? "La sala"} está cerrada${roomEvent.by ? ` por ${roomEvent.by}` : ""}.`);
   }, [roomEvent]);
   const [chatUnread, setChatUnread] = React.useState(0);
+  const assignedShown = React.useRef(0);
+  React.useEffect(() => {
+    // Wait for the map so the toast can name the office.
+    if (!deskAssigned || !zones.length || assignedShown.current === deskAssigned.ts) return;
+    assignedShown.current = deskAssigned.ts;
+    const room = zones.find((z) => z.id === deskAssigned.zone)?.label ?? "tu equipo";
+    say(`🪑 ¡Ya tienes escritorio en ${room}! Te lo asignamos según tu equipo en Airtable.`, {
+      label: "Ir a mi escritorio",
+      run: () => navRef.current?.goToDesk(deskAssigned.deskId),
+    });
+  }, [deskAssigned, zones, say]);
   React.useEffect(() => {
     if (deskEvent) say(`🪑 Ese escritorio ya es de ${deskEvent.owner || "otra persona"}. Busca uno libre en tu equipo.`);
   }, [deskEvent, say]);
@@ -385,6 +399,19 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
       {toast && (
         <div key={toast.ts} className="q-panel q-toast" role="status">
           {toast.text}
+          {toast.action && (
+            <button
+              type="button"
+              className="q-btn q-btn--primary q-btn--sm"
+              style={{ marginLeft: 10 }}
+              onClick={() => {
+                toast.action?.run();
+                setToast(null);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
       <ReminderToasts toasts={reminders.toasts} events={calendarEvents} onDismiss={reminders.dismiss} onJoinMeet={onJoinMeet} />

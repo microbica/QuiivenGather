@@ -40,6 +40,8 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET_TEST }}
           GOOGLE_TOKEN_KEY: ${{ secrets.GOOGLE_TOKEN_KEY_TEST }}
           DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
+          # Opcional: lectura de Airtable (equipos → escritorio automático).
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
         run: |
           cat > .env <<'EOF'
           NODE_ENV=development
@@ -65,6 +67,8 @@ jobs:
           GOOGLE_ALLOWED_DOMAIN=quiiven.com
           GOOGLE_ALLOWED_EMAILS=
           GOOGLE_ADMIN_EMAIL=alejandro.moreno@quiiven.com
+          AIRTABLE_BASE_ID=appL1aq6ivn3D2OaC
+          AIRTABLE_USERS_TABLE=tblUcciENqoEXtVEu
           EOF
           # Inyección dinámica de secrets al .env (llega al container vía env_file).
           # Falla si alguno viene vacío para no desplegar a ciegas.
@@ -80,6 +84,8 @@ jobs:
           for v in $SECRET_VARS; do
             printf '%s=%s\n' "$v" "${!v}" >> .env
           done
+          # Opcional (sin él no hay escritorio automático por equipo).
+          if [ -n "$AIRTABLE_TOKEN" ]; then printf 'AIRTABLE_TOKEN=%s\n' "$AIRTABLE_TOKEN" >> .env; fi
 
       - name: Desplegar con Docker Compose
         run: docker compose up --build -d

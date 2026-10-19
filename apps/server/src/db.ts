@@ -280,6 +280,7 @@ export async function deleteUser(email: string): Promise<DbUser | null> {
     await client.query("BEGIN");
     await client.query("DELETE FROM players WHERE email = $1", [lower]);
     await client.query("DELETE FROM desks WHERE email = $1", [lower]);
+    await client.query("DELETE FROM desk_auto WHERE email = $1", [lower]);
     const { rows } = await client.query<DbUser>(
       "DELETE FROM users WHERE email = $1 RETURNING email, role",
       [lower],
@@ -455,6 +456,18 @@ export async function releaseDesk(by: { email?: string; deskId?: number }): Prom
   const p = await getPool();
   if (by.email) await p.query("DELETE FROM desks WHERE email = $1", [by.email.toLowerCase()]);
   else if (by.deskId !== undefined) await p.query("DELETE FROM desks WHERE desk_id = $1", [by.deskId]);
+}
+
+/**
+ * Marca que a esta persona ya se le asignó escritorio automático. Devuelve
+ * true solo la primera vez (así no se le vuelve a asignar si lo suelta).
+ */
+export async function markDeskAutoAssigned(email: string): Promise<boolean> {
+  const { rowCount } = await (await getPool()).query(
+    "INSERT INTO desk_auto (email, assigned_at) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING",
+    [email.toLowerCase(), Date.now()],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 /** Cierra el pool. Llamar en shutdown. */

@@ -126,6 +126,7 @@ const DEMO = import.meta.env.VITE_DEMO === "1";
 export const DEMO_BOT = { id: "demo-bot", name: "Quiivi (prueba)" };
 
 const DEMO_KEY = "me";
+const DEMO_AUTO_KEY = "quiiven.deskAuto.v1";
 /** Preview: a desk in Talento Humano already taken by the test colleague. */
 const DEMO_DESK: DeskClaimView = {
   deskId: 101854,
@@ -168,6 +169,8 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
   });
   const [myKey, setMyKey] = React.useState(DEMO ? DEMO_KEY : "");
   const [deskEvent, setDeskEvent] = React.useState<{ deskId: number; owner: string; ts: number } | null>(null);
+  /** The server gave you a desk in your team's office (team from Airtable). */
+  const [deskAssigned, setDeskAssigned] = React.useState<{ deskId: number; zone: string; ts: number } | null>(null);
   const addDm = React.useCallback((d: DmEntry) => setDms((prev) => [...prev.slice(-199), d]), []);
   const [net] = React.useState<NetHandle>(() =>
     DEMO
@@ -339,6 +342,26 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
       ),
     ).then(([objs, walls]) => {
       if (cancelled) return;
+      // Preview of the automatic desk: the first time, a free desk in
+      // Operaciones (in the real office it comes from your team in Airtable).
+      void fetch(`${base}desks.json`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((list: { deskId: number; zone: string; color: string }[]) => {
+          if (cancelled || loadDesk()) return;
+          try {
+            if (localStorage.getItem(DEMO_AUTO_KEY)) return;
+            localStorage.setItem(DEMO_AUTO_KEY, "1");
+          } catch {
+            return;
+          }
+          const spot = list.filter((d) => d.zone === "operaciones" && d.deskId !== DEMO_DESK.deskId).sort((a, b) => a.deskId - b.deskId)[0];
+          if (!spot) return;
+          const config = { material: "clara", setup: "monitor", chairStyle: "ergonomica", chairColor: "#18d3b8", left: "suculenta", right: "taza", floor: "ninguno" };
+          saveDesk({ ...(config as Omit<DeskCustom, "deskId">), deskId: spot.deskId });
+          setDesks((m) => ({ ...m, [spot.deskId]: { deskId: spot.deskId, owner: name, ownerKey: DEMO_KEY, config } }));
+          setDeskAssigned({ deskId: spot.deskId, zone: spot.zone, ts: Date.now() });
+        })
+        .catch(() => undefined);
       const list = [...(objs as SmartObject[]), ...(walls as SmartObject[])].map((o) => ({
         ...o,
         material: o.material ?? "wood",
@@ -425,6 +448,9 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
       const syncMe = () => setMyKey(room?.state.players.get(room.sessionId)?.key ?? "");
       $(room.state).players.onAdd(syncMe);
       syncMe();
+      room.onMessage("desk-assigned", (m: { deskId: number; zone: string }) =>
+        setDeskAssigned({ deskId: m.deskId, zone: m.zone, ts: Date.now() }),
+      );
       room.onMessage("desk-taken", (m: { deskId: number; owner: string }) =>
         setDeskEvent({ deskId: m.deskId, owner: m.owner, ts: Date.now() }),
       );
@@ -479,5 +505,5 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
     [],
   );
 
-  return { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent };
+  return { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent, deskAssigned };
 }

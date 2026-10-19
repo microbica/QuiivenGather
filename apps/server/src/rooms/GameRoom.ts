@@ -37,6 +37,7 @@ import {
 } from "../auth/sessions.js";
 import { validMeetUrl as validMeet, isEmailAllowed } from "../auth/google.js";
 import { getTokens } from "../auth/store.js";
+import { freeDeskIn, teamRoomOf } from "../teams.js";
 import {
   deleteObject,
   getPlayerState,
@@ -44,6 +45,7 @@ import {
   initDb,
   listDesks,
   listObjects,
+  markDeskAutoAssigned,
   releaseDesk,
   saveDesk,
   savePlayerState,
@@ -341,6 +343,8 @@ export class GameRoom extends Room<GameState> {
       this.saveTimers.set(client.sessionId, timer);
     }
     console.log(`[game] join ${client.sessionId} as ${p.name}${saved ? " (restored)" : ""}`);
+    // First time in: a free desk in your team's office (team from Airtable).
+    if (email) this.autoAssignDesk(client, p, email).catch((e) => console.error("[game] auto desk failed:", e));
   }
 
   /** Escribe un avatar validado en el jugador (join + mensaje "avatar"). */
@@ -420,6 +424,43 @@ export class GameRoom extends Room<GameState> {
     const left = p.zoneId !== zone;
     p.zoneId = zone;
     if (left) this.releaseEmptyLocks();
+  }
+
+  private hasDesk(key: string): boolean {
+    let has = false;
+    this.state.desks.forEach((d) => {
+      if (d.ownerKey === key) has = true;
+    });
+    return has;
+  }
+
+  private async autoAssignDesk(client: Client, p: Player, email: string) {
+    if (this.hasDesk(p.key)) return;
+    const zone = await teamRoomOf(email);
+    if (!zone || this.hasDesk(p.key) || !this.state.players.has(client.sessionId)) return;
+    const taken = new Set<number>();
+    this.state.desks.forEach((d) => taken.add(d.deskId));
+    const spot = freeDeskIn(zone, taken);
+    if (!spot) return;
+    // Only once per person: if they later free it, it stays free.
+    if (!(await markDeskAutoAssigned(email))) return;
+    const config = sanitizeDeskConfig({
+      material: "clara",
+      setup: "monitor",
+      chairStyle: "ergonomica",
+      chairColor: /^#[0-9a-f]{6}$/i.test(spot.color) ? spot.color : "#18d3b8",
+      left: "suculenta",
+      right: "taza",
+      floor: "ninguno",
+    });
+    if (this.state.desks.has(String(spot.deskId)) || !(await saveDesk(email, spot.deskId, p.name, config))) return;
+    const c = new DeskClaim();
+    c.deskId = spot.deskId;
+    c.owner = p.name;
+    c.ownerKey = p.key;
+    c.config = config;
+    this.state.desks.set(String(spot.deskId), c);
+    client.send("desk-assigned", { deskId: spot.deskId, zone });
   }
 
   /** Removes every desk claim of a person (optionally keeping one). */
