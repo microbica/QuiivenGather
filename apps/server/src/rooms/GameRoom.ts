@@ -9,6 +9,7 @@ import {
   PLAYER_H,
   PLAYER_W,
   SPAWN,
+  isMeetingRoom,
 } from "@quiiven/protocol";
 import {
   clampMove,
@@ -130,6 +131,11 @@ interface ObjUpdateMsg {
 export class GameRoom extends Room<GameState> {
   maxClients = 50;
   private lastMoveAt = new Map<string, number>();
+  /** Locked rooms: who may be inside (present at lock time or let in). */
+  private allowed = new Map<string, Set<string>>();
+  /** Anti-spam for knocks and private messages (sessionId → last ms). */
+  private lastKnockAt = new Map<string, number>();
+  private lastDmAt = new Map<string, number>();
 
   async onCreate() {
     this.setState(new GameState());
@@ -182,6 +188,24 @@ export class GameRoom extends Room<GameState> {
     );
     this.onMessage("obj-rotate", (client, msg: ObjRotateMsg) =>
       this.handleObjRotate(client, msg),
+    );
+    // Salas de reunión: cerrar/abrir, tocar la puerta y dejar pasar.
+    this.onMessage("room-lock", (client, msg: { zone?: unknown; locked?: unknown }) =>
+      this.handleRoomLock(client, msg),
+    );
+    this.onMessage("room-knock", (client, msg: { zone?: unknown }) =>
+      this.handleKnock(client, msg),
+    );
+    this.onMessage("room-admit", (client, msg: { zone?: unknown; to?: unknown }) =>
+      this.handleAdmit(client, msg),
+    );
+    // Meet fijo de la sala: lo pone/quita alguien que esté dentro.
+    this.onMessage("room-meet", (client, msg: { zone?: unknown; url?: unknown }) =>
+      this.handleRoomMeet(client, msg),
+    );
+    // Chat privado 1 a 1: solo lo recibe el destinatario (y el eco al emisor).
+    this.onMessage("dm", (client, msg: { to?: unknown; text?: unknown }) =>
+      this.handleDm(client, msg),
     );
     // Página de admin: edición completa de un objeto existente.
     this.onMessage("obj-update", (client, msg: ObjUpdateMsg) =>
@@ -330,6 +354,9 @@ export class GameRoom extends Room<GameState> {
     this.saveTimers.delete(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.lastMoveAt.delete(client.sessionId);
+    this.lastKnockAt.delete(client.sessionId);
+    this.lastDmAt.delete(client.sessionId);
+    this.releaseEmptyLocks();
     unlinkColyseus(client.sessionId);
     console.log(`[game] leave ${client.sessionId}`);
   }
@@ -340,12 +367,105 @@ export class GameRoom extends Room<GameState> {
     const now = Date.now();
     const dt = now - (this.lastMoveAt.get(client.sessionId) ?? now);
     this.lastMoveAt.set(client.sessionId, now);
+    const zone = sanitizeZone(msg.zone);
+    // Closed room: only people who were inside (or were let in) may enter.
+    if (zone && zone !== p.zoneId && this.state.locks.has(zone) && !this.allowed.get(zone)?.has(client.sessionId)) {
+      client.send("room-locked", { zone, by: this.state.locks.get(zone) });
+      return;
+    }
     const next = clampMove({ x: p.x, y: p.y }, { x: msg.x as number, y: msg.y as number }, dt);
     p.x = next.x;
     p.y = next.y;
     p.dir = validDir(msg.dir, p.dir);
     p.anim = validAnim(msg.anim, p.anim);
-    p.zoneId = sanitizeZone(msg.zone);
+    const left = p.zoneId !== zone;
+    p.zoneId = zone;
+    if (left) this.releaseEmptyLocks();
+  }
+
+  /** Session ids currently inside a zone. */
+  private inZone(zone: string): string[] {
+    const ids: string[] = [];
+    this.state.players.forEach((pl, id) => {
+      if (pl.zoneId === zone) ids.push(id);
+    });
+    return ids;
+  }
+
+  /** A locked room opens by itself once everybody has left it. */
+  private releaseEmptyLocks() {
+    for (const zone of Array.from(this.state.locks.keys())) {
+      if (this.inZone(zone).length === 0) {
+        this.state.locks.delete(zone);
+        this.allowed.delete(zone);
+      }
+    }
+  }
+
+  private async handleRoomLock(client: Client, msg: { zone?: unknown; locked?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    const zone = sanitizeZone(msg?.zone);
+    if (!p || !zone || !isMeetingRoom(zone)) return;
+    // Only someone inside the room (or an admin) can close or open it.
+    if (p.zoneId !== zone && !(await this.isAdmin(client))) return;
+    if (msg?.locked === true) {
+      this.state.locks.set(zone, p.name);
+      this.allowed.set(zone, new Set(this.inZone(zone)));
+    } else {
+      this.state.locks.delete(zone);
+      this.allowed.delete(zone);
+    }
+  }
+
+  private handleKnock(client: Client, msg: { zone?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    const zone = sanitizeZone(msg?.zone);
+    if (!p || !zone || !this.state.locks.has(zone)) return;
+    const now = Date.now();
+    if (now - (this.lastKnockAt.get(client.sessionId) ?? 0) < 5000) return;
+    this.lastKnockAt.set(client.sessionId, now);
+    const inside = new Set(this.inZone(zone));
+    for (const c of this.clients) {
+      if (inside.has(c.sessionId)) c.send("room-knock", { zone, from: client.sessionId, name: p.name, ts: now });
+    }
+  }
+
+  private handleAdmit(client: Client, msg: { zone?: unknown; to?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    const zone = sanitizeZone(msg?.zone);
+    if (!p || !zone || p.zoneId !== zone || !this.state.locks.has(zone)) return;
+    const target = this.clients.find((c) => c.sessionId === msg?.to);
+    if (!target || !this.state.players.has(target.sessionId)) return;
+    this.allowed.get(zone)?.add(target.sessionId);
+    target.send("room-admitted", { zone, by: p.name });
+  }
+
+  private async handleRoomMeet(client: Client, msg: { zone?: unknown; url?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    const zone = sanitizeZone(msg?.zone);
+    if (!p || !zone || !isMeetingRoom(zone)) return;
+    if (p.zoneId !== zone && !(await this.isAdmin(client))) return;
+    if (msg?.url === "" || msg?.url === null || msg?.url === undefined) {
+      this.state.roomMeets.delete(zone);
+      return;
+    }
+    const url = validMeet(msg.url);
+    if (url) this.state.roomMeets.set(zone, url);
+  }
+
+  private handleDm(client: Client, msg: { to?: unknown; text?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    if (!p || typeof msg?.to !== "string" || msg.to === client.sessionId) return;
+    const text = sanitizeChat(msg.text);
+    if (!text) return;
+    const target = this.clients.find((c) => c.sessionId === msg.to);
+    if (!target || !this.state.players.has(target.sessionId)) return;
+    const now = Date.now();
+    if (now - (this.lastDmAt.get(client.sessionId) ?? 0) < 250) return;
+    this.lastDmAt.set(client.sessionId, now);
+    // Ephemeral like the general chat: never stored, never in the synced state.
+    target.send("dm", { from: client.sessionId, name: p.name, text, ts: now });
+    client.send("dm-sent", { to: target.sessionId, text, ts: now });
   }
 
   private handleSignal(client: Client, msg: SignalMsg) {

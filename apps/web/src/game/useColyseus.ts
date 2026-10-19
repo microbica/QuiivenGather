@@ -26,6 +26,32 @@ export interface ChatEntry {
   ts: number;
 }
 
+/** Private 1:1 message (ephemeral, like the general chat). */
+export interface DmEntry {
+  /** Session id of the other person. */
+  peer: string;
+  peerName: string;
+  text: string;
+  ts: number;
+  mine: boolean;
+}
+
+/** Someone knocking on a closed room you are in. */
+export interface KnockEntry {
+  zone: string;
+  from: string;
+  name: string;
+  ts: number;
+}
+
+/** One-off room events for the UI (let in / door closed). */
+export interface RoomEvent {
+  type: "admitted" | "locked";
+  zone: string;
+  by: string;
+  ts: number;
+}
+
 export interface NetHandle {
   getRoom(): Room<GameState> | null;
   sessionId: string | null;
@@ -37,6 +63,14 @@ export interface NetHandle {
   /** Pizarra colaborativa: reenvía la escena al resto por TCP. */
   sendBoardScene(boardId: string, elements: readonly unknown[]): void;
   sendSetMeet(url: string): void;
+  /** Close (or open) a meeting room you are in. */
+  sendRoomLock(zone: string, locked: boolean): void;
+  /** Knock on a closed room: the people inside get a "let in" prompt. */
+  sendKnock(zone: string): void;
+  sendAdmit(zone: string, to: string): void;
+  /** Fixed Meet link of the room you are in ("" removes it). */
+  sendRoomMeet(zone: string, url: string): void;
+  sendDm(to: string, text: string): void;
   sendObjMove(id: string, x: number, y: number): void;
   sendObjAdd(
     label: string,
@@ -74,6 +108,9 @@ export type NetStatus = "connecting" | "online" | "offline" | "demo";
 /** Design preview: no server; objects load from public JSON and edits stay local. */
 const DEMO = import.meta.env.VITE_DEMO === "1";
 
+/** Preview-only colleague so private chats can be tried without a server. */
+export const DEMO_BOT = { id: "demo-bot", name: "Quiivi (prueba)" };
+
 const URL = import.meta.env.VITE_COLYSEUS_URL ?? "ws://localhost:2567";
 
 /**
@@ -93,6 +130,12 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
   const [messages, setMessages] = React.useState<ChatEntry[]>([]);
   const [meetUrl, setMeetUrl] = React.useState<string>("");
   const [objects, setObjects] = React.useState<SmartObject[]>([]);
+  const [locks, setLocks] = React.useState<Record<string, string>>({});
+  const [roomMeets, setRoomMeets] = React.useState<Record<string, string>>({});
+  const [dms, setDms] = React.useState<DmEntry[]>([]);
+  const [knocks, setKnocks] = React.useState<KnockEntry[]>([]);
+  const [roomEvent, setRoomEvent] = React.useState<RoomEvent | null>(null);
+  const addDm = React.useCallback((d: DmEntry) => setDms((prev) => [...prev.slice(-199), d]), []);
   const [net] = React.useState<NetHandle>(() =>
     DEMO
       ? {
@@ -103,6 +146,32 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
           sendStatus: () => undefined,
           sendBoardScene: () => undefined,
           sendSetMeet: (url) => setMeetUrl(url),
+          sendRoomLock: (zone, locked) =>
+            setLocks((m) => {
+              const n = { ...m };
+              if (locked) n[zone] = name;
+              else delete n[zone];
+              return n;
+            }),
+          sendKnock: () => undefined,
+          sendAdmit: () => undefined,
+          sendRoomMeet: (zone, url) =>
+            setRoomMeets((m) => {
+              const n = { ...m };
+              if (url) n[zone] = url;
+              else delete n[zone];
+              return n;
+            }),
+          // Preview: a test colleague answers so the private chat can be tried.
+          sendDm: (to, text) => {
+            const peerName = to === DEMO_BOT.id ? DEMO_BOT.name : to;
+            addDm({ peer: to, peerName, text, ts: Date.now(), mine: true });
+            if (to === DEMO_BOT.id)
+              window.setTimeout(
+                () => addDm({ peer: to, peerName, text: "¡Hola! 👋 Soy un compañero de prueba: en la oficina real este mensaje solo lo ves tú y la persona a la que le escribes.", ts: Date.now(), mine: false }),
+                900,
+              );
+          },
           sendObjMove: (id, x, y) => setObjects((list) => list.map((o) => (o.id === id ? { ...o, x, y } : o))),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
             setObjects((list) => [
@@ -136,6 +205,11 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
           sendBoardScene: (boardId, elements) =>
             roomRef.current?.send("board-scene", { boardId, elements }),
           sendSetMeet: (url) => roomRef.current?.send("set-meet", { url }),
+          sendRoomLock: (zone, locked) => roomRef.current?.send("room-lock", { zone, locked }),
+          sendKnock: (zone) => roomRef.current?.send("room-knock", { zone }),
+          sendAdmit: (zone, to) => roomRef.current?.send("room-admit", { zone, to }),
+          sendRoomMeet: (zone, url) => roomRef.current?.send("room-meet", { zone, url }),
+          sendDm: (to, text) => roomRef.current?.send("dm", { to, text }),
           sendObjMove: (id, x, y) => roomRef.current?.send("obj-move", { id, x, y }),
           sendObjAdd: (label, kind, x, y, w, h, radius, url, material, rotation) =>
             roomRef.current?.send("obj-add", { label, kind, x, y, w, h, radius, url, material, rotation }),
@@ -195,7 +269,7 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
     if (!DEMO) return;
     let cancelled = false;
     setStatus("demo");
-    setRoster([{ id: "self", name, self: true }]);
+    setRoster([{ id: "self", name, self: true }, { id: DEMO_BOT.id, name: DEMO_BOT.name, self: false }]);
     const base = import.meta.env.BASE_URL;
     Promise.all(
       ["objects.json", "walls.json"].map((f) =>
@@ -248,6 +322,40 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
         setMessages((prev) => [...prev.slice(-49), { name: m.name, text: m.text, ts: m.ts }]);
       });
       $(room.state).listen("meetUrl", (value: string) => setMeetUrl(value));
+      // Closed rooms and per-room Meet links.
+      const syncLocks = () => {
+        const m: Record<string, string> = {};
+        room?.state.locks.forEach((by, zone) => (m[zone] = by));
+        setLocks(m);
+      };
+      const syncRoomMeets = () => {
+        const m: Record<string, string> = {};
+        room?.state.roomMeets.forEach((url, zone) => (m[zone] = url));
+        setRoomMeets(m);
+      };
+      $(room.state).locks.onAdd(syncLocks);
+      $(room.state).locks.onRemove(syncLocks);
+      $(room.state).roomMeets.onAdd(syncRoomMeets);
+      $(room.state).roomMeets.onRemove(syncRoomMeets);
+      $(room.state).roomMeets.onChange(syncRoomMeets);
+      syncLocks();
+      syncRoomMeets();
+      const nameOf = (id: string) => room?.state.players.get(id)?.name ?? "Alguien";
+      room.onMessage("dm", (m: { from: string; name: string; text: string; ts: number }) =>
+        addDm({ peer: m.from, peerName: m.name, text: m.text, ts: m.ts, mine: false }),
+      );
+      room.onMessage("dm-sent", (m: { to: string; text: string; ts: number }) =>
+        addDm({ peer: m.to, peerName: nameOf(m.to), text: m.text, ts: m.ts, mine: true }),
+      );
+      room.onMessage("room-knock", (k: KnockEntry) =>
+        setKnocks((prev) => [...prev.filter((x) => !(x.from === k.from && x.zone === k.zone)), k]),
+      );
+      room.onMessage("room-admitted", (m: { zone: string; by: string }) =>
+        setRoomEvent({ type: "admitted", zone: m.zone, by: m.by, ts: Date.now() }),
+      );
+      room.onMessage("room-locked", (m: { zone: string; by?: string }) =>
+        setRoomEvent({ type: "locked", zone: m.zone, by: m.by ?? "", ts: Date.now() }),
+      );
       $(room.state).objects.onAdd(() => syncObjects(room));
       $(room.state).objects.onRemove(() => syncObjects(room));
       // Propiedades de un objeto existente cambian (p.ej. rotation en obj-rotate).
@@ -278,5 +386,10 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
     [name],
   );
 
-  return { status, roster, messages, sendChat, net, meetUrl, objects };
+  const dismissKnock = React.useCallback(
+    (k: KnockEntry) => setKnocks((prev) => prev.filter((x) => x !== k)),
+    [],
+  );
+
+  return { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent };
 }

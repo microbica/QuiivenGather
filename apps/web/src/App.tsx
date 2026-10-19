@@ -16,7 +16,11 @@ import { ReminderToasts } from "./ui/ReminderToasts";
 import { makeBoardNet } from "./game/boards";
 import { DeskPanel } from "./ui/DeskPanel";
 import { defaultDesk, loadDesk, saveDesk, type DeskCustom } from "./avatar/desk";
-import type { DeskAction } from "./game/GameCanvas";
+import type { DeskAction, Nav } from "./game/GameCanvas";
+import type { Zone } from "./game/mapLoader";
+import { isMeetingRoom } from "@quiiven/protocol";
+import { RoomsPanel } from "./ui/RoomsPanel";
+import { RoomBar } from "./ui/RoomBar";
 import { loadAvatar, randomAvatar, saveAvatar, type AvatarConfig } from "./avatar/config";
 import { getStatus, startOAuth, type CalendarEvent, type GoogleStatus } from "./api/google";
 import { isLive } from "./calendar/eventTime";
@@ -150,8 +154,61 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
-  const { status, roster, messages, sendChat, net, meetUrl, objects } = useColyseusRoom(name, { avatar });
+  const { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent } = useColyseusRoom(name, { avatar });
   const voice = useMeshVoice(net);
+
+  // ---- Rooms: list, walk-to, meeting-room bar, closed rooms ----
+  const navRef = React.useRef<Nav | null>(null);
+  const [zones, setZones] = React.useState<Zone[]>([]);
+  const [currentZone, setCurrentZone] = React.useState<Zone | null>(null);
+  const [occupancy, setOccupancy] = React.useState<Record<string, number>>({});
+  const [toast, setToast] = React.useState<{ text: string; ts: number } | null>(null);
+  const say = React.useCallback((text: string) => setToast({ text, ts: Date.now() }), []);
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4500);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+  /** Room whose Meet was already opened on this visit (no double tabs). */
+  const meetOpenedFor = React.useRef("");
+  const openRoomMeet = React.useCallback((zoneId: string) => {
+    const url = roomMeets[zoneId];
+    if (!url || meetOpenedFor.current === zoneId) return;
+    meetOpenedFor.current = zoneId;
+    // Browsers may block tabs not opened by a click: the bar keeps an "Abrir Meet" button.
+    window.open(url, "_blank", "noopener");
+  }, [roomMeets]);
+  const goToRoom = React.useCallback(
+    (z: Zone) => {
+      const r = navRef.current?.goToZone(z.id);
+      if (r === "locked") say(`🔒 ${z.label} está cerrada. Puedes tocar la puerta.`);
+      else if (r === "far") say(`No encontré cómo llegar a ${z.label}.`);
+      // Opened from this click so the browser lets the tab through.
+      else if (r === "ok" && isMeetingRoom(z.id)) openRoomMeet(z.id);
+    },
+    [say, openRoomMeet],
+  );
+  // Entering a meeting room starts its call (and its Meet, if it has one).
+  const zoneId = currentZone?.id ?? "";
+  React.useEffect(() => {
+    if (!zoneId || !isMeetingRoom(zoneId)) {
+      meetOpenedFor.current = "";
+      return;
+    }
+    if (!voice.active && voice.supported) void voice.start();
+    openRoomMeet(zoneId);
+    // Only on entering the room.
+  }, [zoneId]);
+  React.useEffect(() => {
+    if (!roomEvent) return;
+    const z = zones.find((q) => q.id === roomEvent.zone);
+    if (roomEvent.type === "admitted") {
+      navRef.current?.admit(roomEvent.zone);
+      say(`✅ ${roomEvent.by} te dejó pasar a ${z?.label ?? "la sala"}`);
+      if (z) goToRoom(z);
+    } else say(`🔒 ${z?.label ?? "La sala"} está cerrada${roomEvent.by ? ` por ${roomEvent.by}` : ""}.`);
+  }, [roomEvent]);
+  const [chatUnread, setChatUnread] = React.useState(0);
 
   // Presencia: se publica al servidor (aro + insignia + audio de los demás).
   const [myStatus, setMyStatusState] = React.useState<PresenceStatus>("available");
@@ -233,6 +290,10 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         sendChat={sendChat}
         chatOpen={chatOpen}
         onCloseChat={() => setChatOpen(false)}
+        dms={dms}
+        sendDm={net.sendDm}
+        onOpenChat={() => setChatOpen(true)}
+        onUnreadChange={setChatUnread}
       />
       </aside>
       <VoicePanel
@@ -262,9 +323,45 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
             <path d="M2.5 3h11v8h-6l-3 2.5v-2.5h-2v-8z" />
             <path d="M5.5 6h5M5.5 8.2h3" />
           </svg>
+          {chatUnread > 0 && <span className="q-chat__badge q-chat__badge--tab">{chatUnread}</span>}
         </button>
       )}
-      <GameCanvas name={name} avatar={draftAvatar ?? avatar} myDesk={deskDraft ?? myDesk} onDeskAction={onDeskAction} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} myDesk={deskDraft ?? myDesk} onDeskAction={onDeskAction} locks={locks} navRef={navRef} onZones={setZones} onZoneChange={setCurrentZone} onOccupancy={setOccupancy} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
+      <RoomsPanel
+        zones={zones}
+        occupancy={occupancy}
+        locks={locks}
+        roomMeets={roomMeets}
+        currentZoneId={zoneId}
+        onGo={goToRoom}
+        onKnock={(z) => {
+          net.sendKnock(z.id);
+          say(`✊ Tocaste la puerta de ${z.label}. Espera a que te dejen pasar.`);
+        }}
+      />
+      {currentZone && isMeetingRoom(currentZone.id) && (
+        <RoomBar
+          zone={currentZone}
+          people={occupancy[currentZone.id] ?? 1}
+          lockedBy={locks[currentZone.id]}
+          meetUrl={roomMeets[currentZone.id]}
+          voiceActive={voice.active}
+          knocks={knocks.filter((k) => k.zone === currentZone.id)}
+          onStartVoice={() => void voice.start()}
+          onLock={(locked) => net.sendRoomLock(currentZone.id, locked)}
+          onSetMeet={(url) => net.sendRoomMeet(currentZone.id, url)}
+          onAdmit={(k) => {
+            net.sendAdmit(k.zone, k.from);
+            dismissKnock(k);
+          }}
+          onDismissKnock={dismissKnock}
+        />
+      )}
+      {toast && (
+        <div key={toast.ts} className="q-panel q-toast" role="status">
+          {toast.text}
+        </div>
+      )}
       <ReminderToasts toasts={reminders.toasts} events={calendarEvents} onDismiss={reminders.dismiss} onJoinMeet={onJoinMeet} />
       {deskPanel && myDesk && (
         <DeskPanel

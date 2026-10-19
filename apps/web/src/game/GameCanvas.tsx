@@ -3,10 +3,14 @@ import { Application, Container, Graphics, Sprite, Text, Texture, FederatedPoint
 import { CLIENT_SPEED, PLAYER_H, PLAYER_W, TILE, type Player } from "@quiiven/protocol";
 import {
   moveWithCollision,
+  overlaps,
   parseMap,
   zoneAt,
+  type AABB,
   type GameMap,
+  type Zone,
 } from "./mapLoader";
+import { buildNavGrid, findPath, type NavGrid, type Pt } from "./pathfind";
 import { distancePx, isConnected } from "./proximity";
 import { nearestObject, type SmartObject } from "./objects";
 import { makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
@@ -50,6 +54,14 @@ interface Hud {
   near: number;
   chunks: string;
   zoom: number;
+}
+
+/** Lets the UI (rooms list, chat) walk the avatar somewhere by itself. */
+export interface Nav {
+  /** Walk to a room; "locked" if it is closed to you, "far" if unreachable. */
+  goToZone(zoneId: string): "ok" | "locked" | "far";
+  /** You were let into a closed room. */
+  admit(zoneId: string): void;
 }
 
 export type DeskAction = { type: "claim" | "edit"; deskId: number; roomName: string };
@@ -376,7 +388,7 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, avatar, myDesk, onDeskAction, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; myDesk: DeskCustom | null; onDeskAction: (a: DeskAction) => void; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
+export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, onZones, onZoneChange, onOccupancy, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; myDesk: DeskCustom | null; onDeskAction: (a: DeskAction) => void; locks: Record<string, string>; navRef: React.MutableRefObject<Nav | null>; onZones: (zones: Zone[]) => void; onZoneChange: (zone: Zone | null) => void; onOccupancy: (count: Record<string, number>) => void; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   /** Set by the E key or the hint button; consumed by the game loop. */
   const interactRef = React.useRef(false);
@@ -402,6 +414,10 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, net, netStatus,
   onObjectRef.current = onObject;
   const onPositionRef = React.useRef(onPosition);
   onPositionRef.current = onPosition;
+  const locksRef = React.useRef(locks);
+  locksRef.current = locks;
+  const zoneCbRef = React.useRef({ onZones, onZoneChange, onOccupancy });
+  zoneCbRef.current = { onZones, onZoneChange, onOccupancy };
   const audioRef = React.useRef(audio);
   audioRef.current = audio;
   const objectsRef = React.useRef(objects);
@@ -753,6 +769,104 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, net, netStatus,
       disposers.push(() => {
         canvas.removeEventListener("wheel", onWheel);
       });
+
+      // ---- Click-to-move + "go to room" -------------------------------
+      /** Rooms you may enter while closed (you were inside or got let in). */
+      const admitted = new Set<string>();
+      /** Everything the avatar can't walk through right now. */
+      const blockers = (): AABB[] => {
+        const dynamicWalls = objectsRef.current
+          .filter((o) => o.kind === "wall")
+          .map((o) => {
+            // AABB of a rotated rect: w' = w·|cos θ| + h·|sin θ|, h' = w·|sin θ| + h·|cos θ|.
+            const rad = ((o.rotation ?? 0) * Math.PI) / 180;
+            const c = Math.abs(Math.cos(rad));
+            const sn = Math.abs(Math.sin(rad));
+            const bw = o.w * c + o.h * sn;
+            const bh = o.w * sn + o.h * c;
+            return { x: o.x + o.w / 2 - bw / 2, y: o.y + o.h / 2 - bh / 2, w: bw, h: bh };
+          });
+        // Closed rooms act as walls (unless you are already in the doorway).
+        const body = { x: pos.x, y: pos.y, w: BODY_W, h: BODY_H };
+        const closed = map.zones.filter(
+          (z) => locksRef.current[z.id] !== undefined && !admitted.has(z.id) && !overlaps(body, z),
+        );
+        return [...map.collisions, ...dynamicWalls, ...closed];
+      };
+      let grid: { key: string; g: NavGrid } | null = null;
+      const navGrid = (): NavGrid => {
+        const key = `${objectsRef.current.length}|${objectsRef.current.map((o) => `${o.x},${o.y},${o.rotation}`).join(";").length}|${Object.keys(locksRef.current).filter((z) => !admitted.has(z)).sort().join(",")}`;
+        if (!grid || grid.key !== key) grid = { key, g: buildNavGrid({ w: map.widthPx, h: map.heightPx }, { w: BODY_W, h: BODY_H }, blockers()) };
+        return grid.g;
+      };
+      /** Waypoints for the avatar center; null = not walking by itself. */
+      let path: Pt[] | null = null;
+      /** Furniture to use on arrival (clicked a chair, the coffee machine…). */
+      let pathUse: Interactable | null = null;
+      let stuckMs = 0;
+      const marker = new Graphics();
+      marker.visible = false;
+      world.addChild(marker);
+      const showMarker = (x: number, y: number) => {
+        marker.clear();
+        marker.ellipse(0, 0, 11, 6).stroke({ color: 0x18d3b8, width: 2.5 });
+        marker.ellipse(0, 0, 4, 2).fill({ color: 0x18d3b8 });
+        marker.position.set(x, y);
+        marker.alpha = 1;
+        marker.visible = true;
+      };
+      const walkTo = (x: number, y: number, use: Interactable | null = null): boolean => {
+        const p = findPath(navGrid(), { x: pos.x + BODY_W / 2, y: pos.y + BODY_H / 2 }, { x, y });
+        if (!p) return false;
+        path = p.length ? p : null;
+        pathUse = use;
+        stuckMs = 0;
+        const end = p[p.length - 1] ?? { x, y };
+        showMarker(end.x, end.y + BODY_H / 2);
+        return true;
+      };
+      navRef.current = {
+        goToZone: (zoneId) => {
+          const z = map.zones.find((q) => q.id === zoneId);
+          if (!z) return "far";
+          if (locksRef.current[zoneId] !== undefined && !admitted.has(zoneId) && zoneAt(pos.x + BODY_W / 2, pos.y + BODY_H / 2, map.zones)?.id !== zoneId) return "locked";
+          return walkTo(z.x + z.w / 2, z.y + z.h / 2) ? "ok" : "far";
+        },
+        admit: (zoneId) => {
+          admitted.add(zoneId);
+          grid = null;
+        },
+      };
+      disposers.push(() => {
+        navRef.current = null;
+      });
+      zoneCbRef.current.onZones(map.zones);
+      let downAt: { x: number; y: number } | null = null;
+      const toWorld = (e: PointerEvent) => {
+        const rect = canvas.getBoundingClientRect();
+        return { x: (e.clientX - rect.left) / zoom + cam.x, y: (e.clientY - rect.top) / zoom + cam.y };
+      };
+      const onDown = (e: PointerEvent) => {
+        downAt = e.button === 0 && !adminModeRef.current ? { x: e.clientX, y: e.clientY } : null;
+      };
+      const onUp = (e: PointerEvent) => {
+        if (!downAt || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 6) return;
+        downAt = null;
+        const w = toWorld(e);
+        // Clicked on (or right next to) furniture: walk there and use it.
+        const it = nearestInteractable(interactables, w.x, w.y + 6, 26);
+        if (it) walkTo(it.x, it.y - BODY_H / 2, it);
+        else walkTo(w.x, w.y);
+      };
+      canvas.addEventListener("pointerdown", onDown);
+      canvas.addEventListener("pointerup", onUp);
+      canvas.style.cursor = "pointer";
+      disposers.push(() => {
+        canvas.removeEventListener("pointerdown", onDown);
+        canvas.removeEventListener("pointerup", onUp);
+      });
+      let lastZoneId: string | null = null;
+      let lastOcc = "";
       let dir = "down";
       let anim: string = "idle";
       let lastHud = 0;
@@ -785,6 +899,30 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, net, netStatus,
           vx += KEYS[k].x;
           vy += KEYS[k].y;
         }
+        // Keys always win over walking by itself.
+        if (vx !== 0 || vy !== 0) path = null;
+        let stepMax = Infinity;
+        if (path && !keys.size) {
+          const t = path[0];
+          const dx = t.x - (pos.x + BODY_W / 2);
+          const dy = t.y - (pos.y + BODY_H / 2);
+          const d = Math.hypot(dx, dy);
+          if (d < 1.5) {
+            path.shift();
+            if (!path.length) {
+              path = null;
+              marker.visible = false;
+              // Arrived at a chair / coffee / mat: use it.
+              if (pathUse) interactRef.current = true;
+              pathUse = null;
+            }
+          } else {
+            vx = dx / d;
+            vy = dy / d;
+            stepMax = d;
+          }
+        }
+        if (marker.visible && !path) marker.visible = false;
         const moving = vx !== 0 || vy !== 0;
         const nowMs = performance.now();
         // Furniture: E (or the hint button) uses the nearest item or stands up;
@@ -813,30 +951,24 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, net, netStatus,
         }
         if (moving && !activity) {
           const len = Math.hypot(vx, vy);
-          // Colisión: estáticas del mapa + muros dinámicos (admin-added).
-          // Ventanas y puertas NO bloquean movimiento.
-          // AABB de un rectángulo rotado: w' = w·|cos θ| + h·|sin θ|,
-          // h' = w·|sin θ| + h·|cos θ|. Funciona para cualquier ángulo.
-          const dynamicWalls = objectsRef.current
-            .filter((o) => o.kind === "wall")
-            .map((o) => {
-              const rad = ((o.rotation ?? 0) * Math.PI) / 180;
-              const c = Math.abs(Math.cos(rad));
-              const s = Math.abs(Math.sin(rad));
-              const bw = o.w * c + o.h * s;
-              const bh = o.w * s + o.h * c;
-              const cx = o.x + o.w / 2;
-              const cy = o.y + o.h / 2;
-              return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
-            });
+          // Map collisions + admin walls + closed rooms. Windows/doors don't block.
+          const step = Math.min(SPEED * dt, stepMax);
           const next = moveWithCollision(
             pos,
-            (vx / len) * SPEED * dt,
-            (vy / len) * SPEED * dt,
+            (vx / len) * step,
+            (vy / len) * step,
             { w: BODY_W, h: BODY_H },
-            [...map.collisions, ...dynamicWalls],
+            blockers(),
             { w: map.widthPx, h: map.heightPx },
           );
+          // Walking by itself but blocked (someone closed a door): give up.
+          if (path) {
+            stuckMs = Math.abs(next.x - pos.x) + Math.abs(next.y - pos.y) < 0.01 ? stuckMs + dt * 1000 : 0;
+            if (stuckMs > 400) {
+              path = null;
+              pathUse = null;
+            }
+          }
           pos.x = next.x;
           pos.y = next.y;
           dir = Math.abs(vx) >= Math.abs(vy) ? (vx > 0 ? "right" : "left") : vy > 0 ? "down" : "up";
@@ -1006,6 +1138,26 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, net, netStatus,
             onObjectRef.current(near);
           }
           const z = zoneAt(cx, cy, map.zones);
+          // Being inside a room when it gets closed keeps you allowed in it.
+          for (const id of admitted) if (locksRef.current[id] === undefined) admitted.delete(id);
+          if (z && locksRef.current[z.id] !== undefined) admitted.add(z.id);
+          if ((z?.id ?? "") !== lastZoneId) {
+            lastZoneId = z?.id ?? "";
+            zoneCbRef.current.onZoneChange(z);
+          }
+          // People per room (for the rooms list).
+          {
+            const occ: Record<string, number> = {};
+            if (z) occ[z.id] = 1;
+            room?.state?.players?.forEach((p, id) => {
+              if (id !== net.sessionId && p.zoneId) occ[p.zoneId] = (occ[p.zoneId] ?? 0) + 1;
+            });
+            const k = JSON.stringify(occ);
+            if (k !== lastOcc) {
+              lastOcc = k;
+              zoneCbRef.current.onOccupancy(occ);
+            }
+          }
           lastNearCount = connectedIds.length;
           onPositionRef.current?.(Math.round(pos.x), Math.round(pos.y));
           const key = connectedIds.slice().sort().join(",");
