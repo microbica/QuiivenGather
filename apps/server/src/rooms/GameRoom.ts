@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Room, Client } from "colyseus";
 import {
   GameState,
@@ -6,6 +6,7 @@ import {
   MAP_W,
   Player,
   GameObject,
+  DeskClaim,
   PLAYER_H,
   PLAYER_W,
   SPAWN,
@@ -16,6 +17,8 @@ import {
   sanitizeAvatarMsg,
   sanitizeBoardScene,
   sanitizeChat,
+  sanitizeDeskConfig,
+  validDeskId,
   sanitizeName,
   sanitizeStatus,
   sanitizeZone,
@@ -39,7 +42,10 @@ import {
   getPlayerState,
   getRole,
   initDb,
+  listDesks,
   listObjects,
+  releaseDesk,
+  saveDesk,
   savePlayerState,
   upsertObject,
 } from "../db.js";
@@ -136,11 +142,14 @@ export class GameRoom extends Room<GameState> {
   /** Anti-spam for knocks and private messages (sessionId → last ms). */
   private lastKnockAt = new Map<string, number>();
   private lastDmAt = new Map<string, number>();
+  /** sessionId → email of signed-in players (desk persistence). */
+  private emails = new Map<string, string>();
 
   async onCreate() {
     this.setState(new GameState());
     this.setPatchRate(Number(process.env.GAME_PATCH_RATE ?? 50));
     await this.loadObjects();
+    await this.loadDesks();
     this.onMessage("ping", (client) => {
       client.send("pong", { t: Date.now() });
     });
@@ -207,6 +216,16 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("dm", (client, msg: { to?: unknown; text?: unknown }) =>
       this.handleDm(client, msg),
     );
+    // "Mi escritorio": reclamar, decorar y soltar (uno por persona).
+    this.onMessage("desk-claim", (client, msg: { deskId?: unknown; config?: unknown }) =>
+      this.handleDeskClaim(client, msg),
+    );
+    this.onMessage("desk-update", (client, msg: { config?: unknown }) =>
+      this.handleDeskUpdate(client, msg),
+    );
+    this.onMessage("desk-release", (client, msg: { deskId?: unknown }) =>
+      this.handleDeskRelease(client, msg),
+    );
     // Página de admin: edición completa de un objeto existente.
     this.onMessage("obj-update", (client, msg: ObjUpdateMsg) =>
       this.handleObjUpdate(client, msg),
@@ -230,6 +249,21 @@ export class GameRoom extends Room<GameState> {
       g.url = o.url;
       g.rotation = validRotation(o.rotation);
       this.state.objects.set(o.id, g);
+    }
+  }
+
+  private async loadDesks(): Promise<void> {
+    try {
+      for (const d of await listDesks()) {
+        const c = new DeskClaim();
+        c.deskId = d.deskId;
+        c.owner = d.ownerName;
+        c.ownerKey = personKey(d.email);
+        c.config = sanitizeDeskConfig(safeJson(d.config));
+        this.state.desks.set(String(d.deskId), c);
+      }
+    } catch (e) {
+      console.error("[game] load desks failed:", e);
     }
   }
 
@@ -293,6 +327,8 @@ export class GameRoom extends Room<GameState> {
       p.y = Math.round(SPAWN.y - 14 + (Math.random() * 40 - 20));
       p.color = email ? colorFromEmail(email) : 0xf2a54a; // guest: naranja
     }
+    p.key = email ? personKey(email) : `g-${client.sessionId}`;
+    if (email) this.emails.set(client.sessionId, email);
     this.state.players.set(client.sessionId, p);
     this.lastMoveAt.set(client.sessionId, Date.now());
     if (auth.googleSub) linkColyseus(client.sessionId, auth.googleSub);
@@ -356,6 +392,9 @@ export class GameRoom extends Room<GameState> {
     this.lastMoveAt.delete(client.sessionId);
     this.lastKnockAt.delete(client.sessionId);
     this.lastDmAt.delete(client.sessionId);
+    this.emails.delete(client.sessionId);
+    // Guests' desks only live while they are connected.
+    this.dropDesksOf(`g-${client.sessionId}`);
     this.releaseEmptyLocks();
     unlinkColyseus(client.sessionId);
     console.log(`[game] leave ${client.sessionId}`);
@@ -381,6 +420,77 @@ export class GameRoom extends Room<GameState> {
     const left = p.zoneId !== zone;
     p.zoneId = zone;
     if (left) this.releaseEmptyLocks();
+  }
+
+  /** Removes every desk claim of a person (optionally keeping one). */
+  private dropDesksOf(key: string, keep?: string) {
+    const gone: string[] = [];
+    this.state.desks.forEach((d, id) => {
+      if (d.ownerKey === key && id !== keep) gone.push(id);
+    });
+    for (const id of gone) this.state.desks.delete(id);
+  }
+
+  private async handleDeskClaim(client: Client, msg: { deskId?: unknown; config?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    const deskId = validDeskId(msg?.deskId);
+    if (!p || deskId === null) return;
+    const id = String(deskId);
+    const cur = this.state.desks.get(id);
+    if (cur && cur.ownerKey !== p.key) {
+      client.send("desk-taken", { deskId, owner: cur.owner });
+      return;
+    }
+    const config = sanitizeDeskConfig(msg?.config);
+    const email = this.emails.get(client.sessionId);
+    if (email) {
+      try {
+        if (!(await saveDesk(email, deskId, p.name, config))) {
+          client.send("desk-taken", { deskId, owner: this.state.desks.get(id)?.owner ?? "" });
+          return;
+        }
+      } catch (e) {
+        console.error("[game] save desk failed:", e);
+      }
+    }
+    // One desk per person: claiming a new one frees the previous one.
+    this.dropDesksOf(p.key, id);
+    const c = this.state.desks.get(id) ?? new DeskClaim();
+    c.deskId = deskId;
+    c.owner = p.name;
+    c.ownerKey = p.key;
+    c.config = config;
+    this.state.desks.set(id, c);
+  }
+
+  private async handleDeskUpdate(client: Client, msg: { config?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    if (!p) return;
+    let mine: DeskClaim | undefined;
+    this.state.desks.forEach((d) => {
+      if (d.ownerKey === p.key) mine = d;
+    });
+    if (!mine) return;
+    mine.config = sanitizeDeskConfig(msg?.config);
+    mine.owner = p.name;
+    const email = this.emails.get(client.sessionId);
+    if (email) await saveDesk(email, mine.deskId, p.name, mine.config).catch((e) => console.error("[game] save desk failed:", e));
+  }
+
+  private async handleDeskRelease(client: Client, msg: { deskId?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    if (!p) return;
+    // An admin can free anybody's desk (someone left the company, etc.).
+    const deskId = validDeskId(msg?.deskId);
+    if (deskId !== null && this.state.desks.get(String(deskId))?.ownerKey !== p.key) {
+      if (!(await this.isAdmin(client))) return;
+      this.state.desks.delete(String(deskId));
+      await releaseDesk({ deskId }).catch((e) => console.error("[game] release desk failed:", e));
+      return;
+    }
+    this.dropDesksOf(p.key);
+    const email = this.emails.get(client.sessionId);
+    if (email) await releaseDesk({ email }).catch((e) => console.error("[game] release desk failed:", e));
   }
 
   /** Session ids currently inside a zone. */
@@ -664,4 +774,17 @@ function colorFromEmail(email: string): number {
   const g = ((v >> 8) & 0xff) | 0x40;
   const b = (v & 0xff) | 0x40;
   return (r << 16) | (g << 8) | b;
+}
+
+/** Opaque stable id for a person (never expose the email in the state). */
+function personKey(email: string): string {
+  return createHash("sha256").update(email.toLowerCase()).digest("hex").slice(0, 16);
+}
+
+function safeJson(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
+  }
 }

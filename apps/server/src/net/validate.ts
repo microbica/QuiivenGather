@@ -253,3 +253,28 @@ export function sanitizeAvatarMsg(raw: unknown): SanitizedAvatar {
     accessories,
   };
 }
+
+/** Desk ids come from the map generator: 100000 + tileX * 100 + tileY. */
+export function validDeskId(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= 100000 && v < 200000 ? v : null;
+}
+
+const DESK_KEYS = ["material", "setup", "chairStyle", "chairColor", "left", "right", "floor"] as const;
+
+/**
+ * Desk decoration: only known keys with short slug values (or #rrggbb for
+ * the chair color). The client keeps the catalog; unknown slugs render as
+ * "nothing", so the server only needs to bound the shape and size.
+ */
+export function sanitizeDeskConfig(raw: unknown): string {
+  const out: Record<string, string> = {};
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    for (const k of DESK_KEYS) {
+      const v = r[k];
+      if (typeof v !== "string") continue;
+      if (k === "chairColor" ? /^#[0-9a-f]{6}$/i.test(v) : /^[a-z0-9-]{1,24}$/.test(v)) out[k] = v;
+    }
+  }
+  return JSON.stringify(out);
+}

@@ -58,6 +58,20 @@ export class Player extends Schema {
    * de proximidad la consumen. "" o desconocido = available.
    */
   @type("string") status = "available";
+  /** Opaque, stable id of the person (not the email): owner key of their desk. */
+  @type("string") key = "";
+}
+
+/** A desk somebody claimed as theirs ("Mi escritorio"). */
+export class DeskClaim extends Schema {
+  /** Decor id of the desk in the map (stable: from its tile position). */
+  @type("number") deskId = 0;
+  /** Display name of the owner. */
+  @type("string") owner = "";
+  /** Player.key of the owner. */
+  @type("string") ownerKey = "";
+  /** Decoration as JSON (validated by the server). */
+  @type("string") config = "";
 }
 
 /**
@@ -91,4 +105,6 @@ export class GameState extends Schema {
   @type({ map: "string" }) locks = new MapSchema<string>();
   /** Meet fijo de cada sala de reunión: zoneId → URL de Google Meet. */
   @type({ map: "string" }) roomMeets = new MapSchema<string>();
+  /** Claimed desks, keyed by String(deskId). */
+  @type({ map: DeskClaim }) desks = new MapSchema<DeskClaim>();
 }

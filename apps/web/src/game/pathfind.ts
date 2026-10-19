@@ -105,7 +105,7 @@ export function lineClear(g: NavGrid, a: Pt, b: Pt): boolean {
  * the closest walkable point around it.
  */
 export function findPath(g: NavGrid, from: Pt, to: Pt): Pt[] | null {
-  const s = nearestOpen(g, from.x, from.y, 3);
+  const s = nearestOpen(g, from.x, from.y, 6);
   const t = nearestOpen(g, to.x, to.y);
   if (!s || !t) return null;
   const N = g.cols * g.rows;

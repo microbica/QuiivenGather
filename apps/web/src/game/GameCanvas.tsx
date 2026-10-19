@@ -60,8 +60,17 @@ interface Hud {
 export interface Nav {
   /** Walk to a room; "locked" if it is closed to you, "far" if unreachable. */
   goToZone(zoneId: string): "ok" | "locked" | "far";
+  /** Walk to your desk and sit down. */
+  goToDesk(deskId: number): "ok" | "far";
   /** You were let into a closed room. */
   admit(zoneId: string): void;
+}
+
+/** A claimed desk to draw: its decoration, owner name and whether it's yours. */
+export interface DeskView {
+  custom: DeskCustom;
+  owner: string;
+  mine: boolean;
 }
 
 export type DeskAction = { type: "claim" | "edit"; deskId: number; roomName: string };
@@ -388,19 +397,20 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, onZones, onZoneChange, onOccupancy, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; myDesk: DeskCustom | null; onDeskAction: (a: DeskAction) => void; locks: Record<string, string>; navRef: React.MutableRefObject<Nav | null>; onZones: (zones: Zone[]) => void; onZoneChange: (zone: Zone | null) => void; onOccupancy: (count: Record<string, number>) => void; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
+export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, onZones, onZoneChange, onOccupancy, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; desks: DeskView[]; onDeskAction: (a: DeskAction) => void; locks: Record<string, string>; navRef: React.MutableRefObject<Nav | null>; onZones: (zones: Zone[]) => void; onZoneChange: (zone: Zone | null) => void; onOccupancy: (count: Record<string, number>) => void; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   /** Set by the E key or the hint button; consumed by the game loop. */
   const interactRef = React.useRef(false);
   const [hint, setHint] = React.useState<{ label: string; active: boolean } | null>(null);
   /** Desk you are sitting at (to claim or customize it). */
   const [seatDesk, setSeatDesk] = React.useState<{ deskId: number; roomName: string } | null>(null);
-  const myDeskRef = React.useRef(myDesk);
-  myDeskRef.current = myDesk;
+  const desksRef = React.useRef(desks);
+  desksRef.current = desks;
+  const myDesk = desks.find((d) => d.mine)?.custom ?? null;
   const renderDeskRef = React.useRef<() => void>(() => undefined);
   React.useEffect(() => {
     renderDeskRef.current();
-  }, [myDesk, name]);
+  }, [desks]);
   const avatarRef = React.useRef(avatar);
   avatarRef.current = avatar;
   const nameRef = React.useRef(name);
@@ -513,27 +523,25 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, 
         decorC.addChild(below);
         if (above) canopyC.addChild(above);
       }
-      // "Mi escritorio": the claimed desk is repainted on top with its owner's
-      // decoration, chair color and a name tag.
-      const myDeskC = new Container();
-      decorC.addChild(myDeskC);
+      // Claimed desks (everybody's) are repainted on top with their owner's
+      // decoration, chair, floor item and a name tag. Only changed desks rebuild.
+      const desksC = new Container();
+      decorC.addChild(desksC);
       const desksById = new Map(map.decor.filter((d) => d.type === "desk").map((d) => [d.id, d]));
-      const renderMyDesk = () => {
-        // Own textures (not the shared cache), so they go with the sprites.
-        for (const ch of myDeskC.removeChildren()) ch.destroy({ children: true, texture: true, textureSource: true });
-        const custom = myDeskRef.current;
-        const desk = custom ? desksById.get(custom.deskId) : undefined;
-        if (!custom || !desk) return;
+      const drawn = new Map<number, { key: string; c: Container }>();
+      const pixelSprite = (grid: Parameters<typeof gridToCanvas>[0], x: number, y: number) => {
+        const tex = Texture.from(gridToCanvas(grid));
+        tex.source.scaleMode = "nearest";
+        const sp = new Sprite(tex);
+        sp.position.set(x, y);
+        sp.scale.set(2);
+        return sp;
+      };
+      const buildDesk = (v: DeskView, desk: (typeof map.decor)[number]) => {
+        const custom = v.custom;
+        const c = new Container();
         const facing = desk.props.facing === "up" ? "up" : "down";
         const glow = desk.props.color && /^#[0-9a-f]{6}$/i.test(desk.props.color) ? desk.props.color : "#18d3b8";
-        const pixelSprite = (grid: Parameters<typeof gridToCanvas>[0], x: number, y: number) => {
-          const tex = Texture.from(gridToCanvas(grid));
-          tex.source.scaleMode = "nearest";
-          const sp = new Sprite(tex);
-          sp.position.set(x, y);
-          sp.scale.set(2);
-          return sp;
-        };
         const sprite = pixelSprite(paintDesk(custom, facing, glow), desk.x, desk.y);
         sprite.width = desk.w;
         sprite.height = desk.h;
@@ -542,25 +550,45 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, 
         const chair = pixelSprite(paintChair(custom.chairStyle, custom.chairColor, facing), desk.x + (desk.w - CHAIR_W * 2) / 2, chairY + 6);
         const floorItem = pixelSprite(paintFloor(custom.floor), desk.x - 4, chairY + desk.h - FLOOR_H * 2 + 2);
         floorItem.visible = custom.floor !== "ninguno";
-        // Name tag on the edge facing the chair.
+        // Name tag on the edge facing the chair (yours in teal).
         const tag = new Text({
-          text: nameRef.current.split(" ")[0],
+          text: v.owner.split(" ")[0] || "—",
           style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 9, fontWeight: "700", fill: 0xffffff },
           resolution: 2,
         });
         const tagW = tag.width + 10;
         const tagBg = new Graphics()
           .roundRect(0, 0, tagW, 13, 6)
-          .fill({ color: 0x2c2c33 })
+          .fill({ color: v.mine ? 0x0ead9a : 0x2c2c33 })
           .stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
         const tagC = new Container();
         tagC.addChild(tagBg, tag);
         tag.position.set(5, 1);
         tagC.position.set(desk.x + desk.w / 2 - tagW / 2, facing === "down" ? desk.y - 6 : desk.y + desk.h - 7);
-        myDeskC.addChild(chair, floorItem, sprite, tagC);
+        c.addChild(chair, floorItem, sprite, tagC);
+        return c;
       };
-      renderDeskRef.current = renderMyDesk;
-      renderMyDesk();
+      const renderDesks = () => {
+        const want = new Map(desksRef.current.map((v) => [v.custom.deskId, v]));
+        for (const [id, d] of drawn) {
+          const v = want.get(id);
+          if (v && d.key === JSON.stringify(v)) continue;
+          desksC.removeChild(d.c);
+          // Own textures (not the shared cache), so they go with the sprites.
+          d.c.destroy({ children: true, texture: true, textureSource: true });
+          drawn.delete(id);
+        }
+        for (const [id, v] of want) {
+          if (drawn.has(id)) continue;
+          const desk = desksById.get(id);
+          if (!desk) continue;
+          const c = buildDesk(v, desk);
+          desksC.addChild(c);
+          drawn.set(id, { key: JSON.stringify(v), c });
+        }
+      };
+      renderDeskRef.current = renderDesks;
+      renderDesks();
 
       const groundChunks = buildLayer(map, map.ground, groundC);
       const wallChunks = buildLayer(map, map.walls, objectC);
@@ -835,6 +863,12 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, 
           if (!z) return "far";
           if (locksRef.current[zoneId] !== undefined && !admitted.has(zoneId) && zoneAt(pos.x + BODY_W / 2, pos.y + BODY_H / 2, map.zones)?.id !== zoneId) return "locked";
           return walkTo(z.x + z.w / 2, z.y + z.h / 2) ? "ok" : "far";
+        },
+        goToDesk: (deskId) => {
+          const seat = interactables.find((it) => it.deskId === deskId);
+          if (!seat) return "far";
+          if (activity === seat) return "ok";
+          return walkTo(seat.x, seat.y - BODY_H / 2, seat) ? "ok" : "far";
         },
         admit: (zoneId) => {
           admitted.add(zoneId);
@@ -1339,22 +1373,27 @@ export function GameCanvas({ name, avatar, myDesk, onDeskAction, locks, navRef, 
           </>
         )}
       </div>
-      {seatDesk && (
-        <button
-          type="button"
-          className="q-panel q-hint q-hint--desk"
-          onClick={() =>
-            onDeskAction(
-              myDesk?.deskId === seatDesk.deskId
-                ? { type: "edit", deskId: seatDesk.deskId, roomName: seatDesk.roomName }
-                : { type: "claim", deskId: seatDesk.deskId, roomName: seatDesk.roomName },
-            )
-          }
-        >
-          <kbd aria-hidden="true">{myDesk?.deskId === seatDesk.deskId ? "✎" : "★"}</kbd>
-          {myDesk?.deskId === seatDesk.deskId ? "Personalizar mi escritorio" : "Hacer mi escritorio"}
-        </button>
-      )}
+      {seatDesk && (() => {
+        const claim = desks.find((d) => d.custom.deskId === seatDesk.deskId);
+        if (claim && !claim.mine)
+          return (
+            <span className="q-panel q-hint q-hint--desk q-hint--info">
+              <kbd aria-hidden="true">🪑</kbd>
+              Escritorio de {claim.owner.split(" ")[0]}
+            </span>
+          );
+        const mine = !!claim;
+        return (
+          <button
+            type="button"
+            className="q-panel q-hint q-hint--desk"
+            onClick={() => onDeskAction({ type: mine ? "edit" : "claim", deskId: seatDesk.deskId, roomName: seatDesk.roomName })}
+          >
+            <kbd aria-hidden="true">{mine ? "✎" : "★"}</kbd>
+            {mine ? "Personalizar mi escritorio" : myDesk ? "Cambiarme a este escritorio" : "Hacer mi escritorio"}
+          </button>
+        );
+      })()}
       {hint && (
         <button
           type="button"

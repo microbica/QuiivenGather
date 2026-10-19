@@ -15,8 +15,8 @@ import { ProfilePanel } from "./ui/ProfilePanel";
 import { ReminderToasts } from "./ui/ReminderToasts";
 import { makeBoardNet } from "./game/boards";
 import { DeskPanel } from "./ui/DeskPanel";
-import { defaultDesk, loadDesk, saveDesk, type DeskCustom } from "./avatar/desk";
-import type { DeskAction, Nav } from "./game/GameCanvas";
+import { defaultDesk, sanitizeDesk, type DeskCustom } from "./avatar/desk";
+import type { DeskAction, DeskView, Nav } from "./game/GameCanvas";
 import type { Zone } from "./game/mapLoader";
 import { isMeetingRoom } from "@quiiven/protocol";
 import { RoomsPanel } from "./ui/RoomsPanel";
@@ -131,22 +131,8 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
-  // "Mi escritorio": one claimed desk per person (saved in this browser for now).
-  const [myDesk, setMyDesk] = React.useState<DeskCustom | null>(() => loadDesk());
   const [deskDraft, setDeskDraft] = React.useState<DeskCustom | null>(null);
   const [deskPanel, setDeskPanel] = React.useState<{ roomName: string } | null>(null);
-  const onDeskAction = React.useCallback(
-    (a: DeskAction) => {
-      if (a.type === "claim") {
-        // Keep your decoration when moving to another desk.
-        const next = myDesk ? { ...myDesk, deskId: a.deskId } : defaultDesk(a.deskId);
-        setMyDesk(next);
-        saveDesk(next);
-      }
-      setDeskPanel({ roomName: a.roomName });
-    },
-    [myDesk],
-  );
   const saveProfile = React.useCallback((cfg: AvatarConfig) => {
     saveAvatar(cfg);
     setAvatar(cfg);
@@ -154,7 +140,35 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
-  const { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent } = useColyseusRoom(name, { avatar });
+  const { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent } = useColyseusRoom(name, { avatar });
+
+  // "Mi escritorio": desks are claimed on the server, one per person, so
+  // everybody sees whose desk is whose and nobody can take a claimed one.
+  const myDesk = React.useMemo<DeskCustom | null>(() => {
+    const mine = Object.values(desks).find((d) => myKey && d.ownerKey === myKey);
+    return mine ? sanitizeDesk({ ...mine.config, deskId: mine.deskId }) : null;
+  }, [desks, myKey]);
+  const deskViews = React.useMemo<DeskView[]>(
+    () =>
+      Object.values(desks).flatMap((d) => {
+        const mine = !!myKey && d.ownerKey === myKey;
+        const custom = mine && deskDraft ? deskDraft : sanitizeDesk({ ...d.config, deskId: d.deskId });
+        return custom ? [{ custom, owner: d.owner, mine }] : [];
+      }),
+    [desks, myKey, deskDraft],
+  );
+  const onDeskAction = React.useCallback(
+    (a: DeskAction) => {
+      if (a.type === "claim") {
+        // Keep your decoration when moving to another desk.
+        const { deskId: _old, ...config } = myDesk ?? defaultDesk(a.deskId);
+        void _old;
+        net.sendDeskClaim(a.deskId, config);
+      }
+      setDeskPanel({ roomName: a.roomName });
+    },
+    [myDesk, net],
+  );
   const voice = useMeshVoice(net);
 
   // ---- Rooms: list, walk-to, meeting-room bar, closed rooms ----
@@ -209,6 +223,9 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     } else say(`🔒 ${z?.label ?? "La sala"} está cerrada${roomEvent.by ? ` por ${roomEvent.by}` : ""}.`);
   }, [roomEvent]);
   const [chatUnread, setChatUnread] = React.useState(0);
+  React.useEffect(() => {
+    if (deskEvent) say(`🪑 Ese escritorio ya es de ${deskEvent.owner || "otra persona"}. Busca uno libre en tu equipo.`);
+  }, [deskEvent, say]);
 
   // Presencia: se publica al servidor (aro + insignia + audio de los demás).
   const [myStatus, setMyStatusState] = React.useState<PresenceStatus>("available");
@@ -326,7 +343,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           {chatUnread > 0 && <span className="q-chat__badge q-chat__badge--tab">{chatUnread}</span>}
         </button>
       )}
-      <GameCanvas name={name} avatar={draftAvatar ?? avatar} myDesk={deskDraft ?? myDesk} onDeskAction={onDeskAction} locks={locks} navRef={navRef} onZones={setZones} onZoneChange={setCurrentZone} onOccupancy={setOccupancy} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} desks={deskViews} onDeskAction={onDeskAction} locks={locks} navRef={navRef} onZones={setZones} onZoneChange={setCurrentZone} onOccupancy={setOccupancy} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
       <RoomsPanel
         zones={zones}
         occupancy={occupancy}
@@ -334,6 +351,14 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         roomMeets={roomMeets}
         currentZoneId={zoneId}
         onGo={goToRoom}
+        hasDesk={!!myDesk}
+        onMyDesk={() => {
+          if (!myDesk) {
+            say("🪑 Aún no tienes escritorio: siéntate en uno libre de tu equipo y dale ★ Hacer mi escritorio.");
+            return;
+          }
+          if (navRef.current?.goToDesk(myDesk.deskId) === "far") say("No encontré cómo llegar a tu escritorio.");
+        }}
         onKnock={(z) => {
           net.sendKnock(z.id);
           say(`✊ Tocaste la puerta de ${z.label}. Espera a que te dejen pasar.`);
@@ -369,14 +394,14 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           roomName={deskPanel.roomName}
           onPreview={setDeskDraft}
           onSave={(d) => {
-            setMyDesk(d);
-            saveDesk(d);
+            const { deskId: _id, ...config } = d;
+            void _id;
+            net.sendDeskUpdate(config);
             setDeskDraft(null);
             setDeskPanel(null);
           }}
           onRelease={() => {
-            setMyDesk(null);
-            saveDesk(null);
+            net.sendDeskRelease();
             setDeskDraft(null);
             setDeskPanel(null);
           }}

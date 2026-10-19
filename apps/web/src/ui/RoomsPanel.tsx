@@ -11,6 +11,9 @@ interface Props {
   currentZoneId: string;
   onGo: (zone: Zone) => void;
   onKnock: (zone: Zone) => void;
+  /** "Ir a mi escritorio" (or how to get one). */
+  onMyDesk: () => void;
+  hasDesk: boolean;
 }
 
 type Group = { id: string; title: string; rooms: Zone[] };
@@ -18,7 +21,9 @@ type Group = { id: string; title: string; rooms: Zone[] };
 function groupRooms(zones: Zone[]): Group[] {
   const rooms = zones.filter((z) => z.kind !== "spawn");
   const meeting = rooms.filter((z) => isMeetingRoom(z.id));
-  const common = rooms.filter((z) => !isMeetingRoom(z.id) && (z.area === "general" || z.kind === "interact"));
+  const common = rooms.filter(
+    (z) => !isMeetingRoom(z.id) && (z.area === "general" || z.kind === "interact"),
+  );
   const teams = rooms.filter((z) => !meeting.includes(z) && !common.includes(z));
   return [
     { id: "meeting", title: "Salas de reunión", rooms: meeting },
@@ -28,7 +33,17 @@ function groupRooms(zones: Zone[]): Group[] {
 }
 
 /** "Salas": list of rooms; one click walks your avatar there by itself. */
-export function RoomsPanel({ zones, occupancy, locks, roomMeets, currentZoneId, onGo, onKnock }: Props) {
+export function RoomsPanel({
+  zones,
+  occupancy,
+  locks,
+  roomMeets,
+  currentZoneId,
+  onGo,
+  onKnock,
+  onMyDesk,
+  hasDesk,
+}: Props) {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
   const groups = React.useMemo(() => groupRooms(zones), [zones]);
@@ -37,20 +52,45 @@ export function RoomsPanel({ zones, occupancy, locks, roomMeets, currentZoneId, 
 
   return (
     <div className="q-rooms">
-      <button
-        type="button"
-        className="q-panel q-rooms__toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M3 14V2.5h7.5V14M10.5 4.5H13V14M1.5 14h13" />
-          <circle cx="8.3" cy="8.5" r=".6" fill="currentColor" />
-        </svg>
-        Salas
-        <span className="q-rooms__count">{total}</span>
-        <span aria-hidden="true" style={{ fontSize: 10, opacity: 0.6 }}>{open ? "▴" : "▾"}</span>
-      </button>
+      <div className="q-rooms__bar">
+        <button
+          type="button"
+          className="q-panel q-rooms__toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 14V2.5h7.5V14M10.5 4.5H13V14M1.5 14h13" />
+            <circle cx="8.3" cy="8.5" r=".6" fill="currentColor" />
+          </svg>
+          Salas
+          <span className="q-rooms__count">{total}</span>
+          <span aria-hidden="true" style={{ fontSize: 10, opacity: 0.6 }}>
+            {open ? "▴" : "▾"}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="q-panel q-rooms__toggle"
+          onClick={onMyDesk}
+          title={
+            hasDesk ? "Caminar a tu escritorio y sentarte" : "Aún no tienes escritorio"
+          }
+        >
+          <span aria-hidden="true">🪑</span>
+          {hasDesk ? "Ir a mi escritorio" : "Mi escritorio"}
+        </button>
+      </div>
       {open && (
         <section className="q-panel q-rooms__panel" aria-label="Salas de la oficina">
           <input
@@ -62,7 +102,9 @@ export function RoomsPanel({ zones, occupancy, locks, roomMeets, currentZoneId, 
           />
           <div className="q-rooms__list">
             {groups.map((g) => {
-              const rooms = g.rooms.filter((z) => !query || z.label.toLowerCase().includes(query));
+              const rooms = g.rooms.filter(
+                (z) => !query || z.label.toLowerCase().includes(query),
+              );
               if (!rooms.length) return null;
               return (
                 <div key={g.id}>
@@ -79,12 +121,23 @@ export function RoomsPanel({ zones, occupancy, locks, roomMeets, currentZoneId, 
                           className="q-room__go"
                           disabled={here || closed}
                           onClick={() => onGo(z)}
-                          title={here ? "Estás aquí" : closed ? `Cerrada por ${lockedBy}` : `Ir a ${z.label}`}
+                          title={
+                            here
+                              ? "Estás aquí"
+                              : closed
+                                ? `Cerrada por ${lockedBy}`
+                                : `Ir a ${z.label}`
+                          }
                         >
-                          <span className={`q-area-dot q-area-dot--${z.area ?? "general"}`} aria-hidden="true" />
+                          <span
+                            className={`q-area-dot q-area-dot--${z.area ?? "general"}`}
+                            aria-hidden="true"
+                          />
                           <span className="q-room__name">{z.label}</span>
                           {roomMeets[z.id] && <span title="Tiene Meet">🎥</span>}
-                          {lockedBy !== undefined && <span title={`Cerrada por ${lockedBy}`}>🔒</span>}
+                          {lockedBy !== undefined && (
+                            <span title={`Cerrada por ${lockedBy}`}>🔒</span>
+                          )}
                           {n > 0 && (
                             <span className="q-room__people" aria-label={`${n} personas`}>
                               {n}
@@ -93,7 +146,11 @@ export function RoomsPanel({ zones, occupancy, locks, roomMeets, currentZoneId, 
                           {here && <span className="q-small q-muted">aquí</span>}
                         </button>
                         {closed && (
-                          <button type="button" className="q-btn q-btn--outline q-btn--sm" onClick={() => onKnock(z)}>
+                          <button
+                            type="button"
+                            className="q-btn q-btn--outline q-btn--sm"
+                            onClick={() => onKnock(z)}
+                          >
                             Tocar
                           </button>
                         )}

@@ -1002,6 +1002,10 @@ input {
   gap: 8px;
   max-height: calc(100vh - 190px);
 }
+.q-rooms__bar {
+  display: flex;
+  gap: 8px;
+}
 .q-rooms__toggle {
   display: inline-flex;
   align-items: center;
@@ -1241,4 +1245,8 @@ input {
   border-radius: 14px 14px 4px 14px;
   background: var(--q-carbon);
   color: #fff;
+}
+.q-hint--info {
+  cursor: default;
+  color: var(--q-text-2);
 }

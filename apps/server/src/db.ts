@@ -279,6 +279,7 @@ export async function deleteUser(email: string): Promise<DbUser | null> {
   try {
     await client.query("BEGIN");
     await client.query("DELETE FROM players WHERE email = $1", [lower]);
+    await client.query("DELETE FROM desks WHERE email = $1", [lower]);
     const { rows } = await client.query<DbUser>(
       "DELETE FROM users WHERE email = $1 RETURNING email, role",
       [lower],
@@ -401,6 +402,59 @@ export async function saveBoardScene(boardId: string, scene: unknown): Promise<v
      ON CONFLICT (board_id) DO UPDATE SET scene = excluded.scene, updated_at = excluded.updated_at`,
     [boardId, JSON.stringify(scene), Date.now()],
   );
+}
+
+export interface DbDesk {
+  deskId: number;
+  email: string;
+  ownerName: string;
+  /** Decoración ya validada (JSON). */
+  config: string;
+}
+
+/** Escritorios reclamados (se cargan al crear la sala). */
+export async function listDesks(): Promise<DbDesk[]> {
+  const { rows } = await (await getPool()).query<{ desk_id: number; email: string; owner_name: string; config: unknown }>(
+    "SELECT desk_id, email, owner_name, config FROM desks",
+  );
+  return rows.map((r) => ({ deskId: r.desk_id, email: r.email, ownerName: r.owner_name, config: JSON.stringify(r.config ?? {}) }));
+}
+
+/**
+ * Guarda el escritorio de una persona (suelta el que tuviera antes). Devuelve
+ * false si ese escritorio ya es de otra persona.
+ */
+export async function saveDesk(email: string, deskId: number, ownerName: string, config: string): Promise<boolean> {
+  const lower = email.toLowerCase();
+  const client = await (await getPool()).connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM desks WHERE email = $1 AND desk_id <> $2", [lower, deskId]);
+    const { rowCount } = await client.query(
+      `INSERT INTO desks (desk_id, email, owner_name, config, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5)
+       ON CONFLICT (desk_id) DO UPDATE SET owner_name = excluded.owner_name, config = excluded.config, updated_at = excluded.updated_at
+       WHERE desks.email = excluded.email`,
+      [deskId, lower, ownerName, config, Date.now()],
+    );
+    if (!rowCount) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query("COMMIT");
+    return true;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Suelta un escritorio (por dueño o por id, para el admin). */
+export async function releaseDesk(by: { email?: string; deskId?: number }): Promise<void> {
+  const p = await getPool();
+  if (by.email) await p.query("DELETE FROM desks WHERE email = $1", [by.email.toLowerCase()]);
+  else if (by.deskId !== undefined) await p.query("DELETE FROM desks WHERE desk_id = $1", [by.deskId]);
 }
 
 /** Cierra el pool. Llamar en shutdown. */
