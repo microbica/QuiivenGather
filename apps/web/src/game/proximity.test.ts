@@ -35,4 +35,13 @@ describe("proximity", () => {
     expect(isConnected(stand, open, 10, R)).toBe(true);
     expect(isConnected(stand, open, R + 50, R)).toBe(false);
   });
+
+  it("conversación cerrada: solo se oyen sus miembros", () => {
+    const a = { ...open, bubble: "b1" };
+    expect(isConnected(a, { ...open, bubble: "b1" }, R + 200, R)).toBe(true);
+    expect(isConnected(a, open, 10, R)).toBe(false);
+    expect(isConnected(open, a, 10, R)).toBe(false);
+    expect(isConnected(a, { ...open, bubble: "b2" }, 10, R)).toBe(false);
+    expect(isConnected({ ...sala1, bubble: "b1" }, { ...sala1, bubble: "" }, 10, R)).toBe(false);
+  });
 });

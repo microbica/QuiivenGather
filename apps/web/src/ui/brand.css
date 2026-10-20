@@ -1250,3 +1250,36 @@ input {
   cursor: default;
   color: var(--q-text-2);
 }
+
+/* ---------- Conversación privada (burbuja) ---------- */
+.q-bubble-card {
+  box-shadow: var(--q-shadow), inset 0 0 0 2px var(--q-teal);
+}
+.q-bubble-knock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: var(--q-radius-sm);
+  background: rgba(255, 116, 66, 0.1);
+  font-size: 12px;
+}
+.q-bubble-near {
+  position: absolute;
+  left: 50%;
+  bottom: 140px;
+  transform: translateX(-50%);
+  z-index: 13;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  max-width: min(560px, calc(100vw - 360px));
+  border-left: 4px solid var(--q-orange);
+}
+.q-bubble-near__lock {
+  font-size: 18px;
+}

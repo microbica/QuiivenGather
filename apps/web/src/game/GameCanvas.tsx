@@ -56,6 +56,16 @@ interface Hud {
   zoom: number;
 }
 
+/** Locked conversations around you, for the UI. */
+export interface BubbleInfo {
+  /** Your locked conversation (other members), or null. */
+  mine: { members: { id: string; name: string }[] } | null;
+  /** A locked conversation you are standing next to (not yours). */
+  lockedNear: { bubble: string; names: string[] } | null;
+  /** You have people in voice range and no conversation locked yet. */
+  canLock: boolean;
+}
+
 /** Lets the UI (rooms list, chat) walk the avatar somewhere by itself. */
 export interface Nav {
   /** Walk to a room; "locked" if it is closed to you, "far" if unreachable. */
@@ -397,7 +407,7 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, onZones, onZoneChange, onOccupancy, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; desks: DeskView[]; onDeskAction: (a: DeskAction) => void; locks: Record<string, string>; navRef: React.MutableRefObject<Nav | null>; onZones: (zones: Zone[]) => void; onZoneChange: (zone: Zone | null) => void; onOccupancy: (count: Record<string, number>) => void; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
+export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, onZones, onZoneChange, onOccupancy, onBubble, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; desks: DeskView[]; onDeskAction: (a: DeskAction) => void; locks: Record<string, string>; navRef: React.MutableRefObject<Nav | null>; onZones: (zones: Zone[]) => void; onZoneChange: (zone: Zone | null) => void; onOccupancy: (count: Record<string, number>) => void; onBubble: (b: BubbleInfo) => void; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   /** Set by the E key or the hint button; consumed by the game loop. */
   const interactRef = React.useRef(false);
@@ -426,8 +436,8 @@ export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, o
   onPositionRef.current = onPosition;
   const locksRef = React.useRef(locks);
   locksRef.current = locks;
-  const zoneCbRef = React.useRef({ onZones, onZoneChange, onOccupancy });
-  zoneCbRef.current = { onZones, onZoneChange, onOccupancy };
+  const zoneCbRef = React.useRef({ onZones, onZoneChange, onOccupancy, onBubble });
+  zoneCbRef.current = { onZones, onZoneChange, onOccupancy, onBubble };
   const audioRef = React.useRef(audio);
   audioRef.current = audio;
   const objectsRef = React.useRef(objects);
@@ -904,6 +914,10 @@ export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, o
         canvas.removeEventListener("pointerup", onUp);
       });
       let lastZoneId: string | null = null;
+      let lastBubbleKey = "";
+      let bubbleAwayMs = 0;
+      const bubbleG = new Graphics();
+      decorC.addChild(bubbleG);
       let lastOcc = "";
       let dir = "down";
       let anim: string = "idle";
@@ -1063,11 +1077,31 @@ export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, o
         // Remote avatars: create/update from room state + interpolate.
         // Proximity mock: green ring = connected (would get audio in Fase 3).
         const room = net.getRoom();
+        // Preview mode has fake colleagues instead of a server room.
+        const players = room?.state?.players ?? net.demoState?.players;
+        const selfId = net.sessionId ?? net.demoState?.selfId ?? null;
+        const meP = selfId ? players?.get(selfId) : undefined;
+        if (net.demoState && meP) {
+          meP.x = Math.round(pos.x);
+          meP.y = Math.round(pos.y);
+        }
+        const myBubble = meP?.bubble ?? "";
         const connectedIds: string[] = [];
-        if (room?.state?.players) {
-          const selfZone = { zoneId: myZone?.id ?? "", zoneKind: myZone?.kind ?? "" };
-          room.state.players.forEach((p, id) => {
-            if (id === net.sessionId) return;
+        /** Locked conversations around: members' centers, for the rings. */
+        const bubbles = new Map<string, { pts: { x: number; y: number }[]; ids: string[]; names: string[] }>();
+        const addToBubble = (b: string, id: string, name: string, x: number, y: number) => {
+          if (!b) return;
+          const e = bubbles.get(b) ?? { pts: [], ids: [], names: [] };
+          e.pts.push({ x, y });
+          e.ids.push(id);
+          e.names.push(name);
+          bubbles.set(b, e);
+        };
+        if (meP) addToBubble(myBubble, selfId!, meP.name, cx0, cy0);
+        if (players) {
+          const selfZone = { zoneId: myZone?.id ?? "", zoneKind: myZone?.kind ?? "", bubble: myBubble };
+          players.forEach((p, id) => {
+            if (id === selfId) return;
             let r = remotes.get(id);
             if (!r) {
               // Skin real publicada por el jugador (con fallback seguro).
@@ -1096,9 +1130,10 @@ export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, o
             r.c.zIndex = r.c.position.y;
 
             const pz = map.zones.find((z) => z.id === p.zoneId);
+            addToBubble(p.bubble ?? "", id, p.name, r.cx + BODY_W / 2, r.cy + BODY_H / 2);
             const connected = isConnected(
               selfZone,
-              { zoneId: p.zoneId, zoneKind: pz?.kind ?? "" },
+              { zoneId: p.zoneId, zoneKind: pz?.kind ?? "", bubble: p.bubble ?? "" },
               distancePx({ x: cx0, y: cy0 }, { x: r.cx + BODY_W / 2, y: r.cy + BODY_H / 2 }),
               radiusPx,
             );
@@ -1133,7 +1168,7 @@ export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, o
               r.cy < cam.y + viewHz + radiusPx;
           });
           for (const [id, r] of remotes) {
-            if (!room.state.players.get(id)) {
+            if (!players.get(id)) {
               avatarC.removeChild(r.c, r.pet);
               // Solo contenedores: las texturas son compartidas (textureCache) y
               // destruirlas aquí envenenaría al resto de avatares (alphaMode null).
@@ -1142,6 +1177,52 @@ export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, o
               remotes.delete(id);
               audioRef.current?.detach(id);
             }
+          }
+        }
+
+        // Locked conversations: a ring with a padlock around their members.
+        bubbleG.clear();
+        let lockedNear: BubbleInfo["lockedNear"] = null;
+        for (const [b, e] of bubbles) {
+          if (e.pts.length < 2 && b !== myBubble) continue;
+          const mx = e.pts.reduce((a, q) => a + q.x, 0) / e.pts.length;
+          const my = e.pts.reduce((a, q) => a + q.y, 0) / e.pts.length;
+          const rad = Math.max(...e.pts.map((q) => Math.hypot(q.x - mx, q.y - my))) + 30;
+          const mine = b === myBubble;
+          const color = mine ? 0x18d3b8 : 0xff7442;
+          bubbleG.circle(mx, my + 6, rad).fill({ color, alpha: 0.07 }).stroke({ color, width: 2, alpha: 0.85 });
+          // Padlock on top of the ring.
+          const lx = mx;
+          const ly = my + 6 - rad;
+          bubbleG.roundRect(lx - 9, ly - 9, 18, 18, 6).fill({ color: 0xffffff }).stroke({ color, width: 2 });
+          bubbleG.roundRect(lx - 4.5, ly - 2, 9, 7, 1.5).fill({ color: 0x2c2c33 });
+          bubbleG.moveTo(lx - 3, ly - 2).arc(lx, ly - 2, 3, Math.PI, 0).stroke({ color: 0x2c2c33, width: 1.6 });
+          if (!mine && !myBubble && e.pts.some((q) => Math.hypot(q.x - cx0, q.y - cy0) <= radiusPx))
+            lockedNear = { bubble: b, names: e.names };
+        }
+        // Walking away from everybody in your conversation takes you out.
+        if (myBubble) {
+          const others = (bubbles.get(myBubble)?.pts.length ?? 1) - 1;
+          const far = (bubbles.get(myBubble)?.pts ?? []).every((q) => Math.hypot(q.x - cx0, q.y - cy0) < 1 || Math.hypot(q.x - cx0, q.y - cy0) > radiusPx * 1.6);
+          bubbleAwayMs = others > 0 && far ? bubbleAwayMs + dt * 1000 : 0;
+          if (bubbleAwayMs > 1500) {
+            bubbleAwayMs = 0;
+            net.sendBubbleLeave();
+          }
+        }
+        {
+          const mineE = bubbles.get(myBubble);
+          const info: BubbleInfo = {
+            mine: myBubble
+              ? { members: (mineE?.ids ?? []).map((id, k) => ({ id, name: mineE!.names[k] })).filter((m) => m.id !== selfId) }
+              : null,
+            lockedNear,
+            canLock: !myBubble && connectedIds.length > 0,
+          };
+          const key = JSON.stringify(info);
+          if (key !== lastBubbleKey) {
+            lastBubbleKey = key;
+            zoneCbRef.current.onBubble(info);
           }
         }
 
@@ -1187,8 +1268,8 @@ export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, o
           {
             const occ: Record<string, number> = {};
             if (z) occ[z.id] = 1;
-            room?.state?.players?.forEach((p, id) => {
-              if (id !== net.sessionId && p.zoneId) occ[p.zoneId] = (occ[p.zoneId] ?? 0) + 1;
+            players?.forEach((p, id) => {
+              if (id !== selfId && p.zoneId) occ[p.zoneId] = (occ[p.zoneId] ?? 0) + 1;
             });
             const k = JSON.stringify(occ);
             if (k !== lastOcc) {

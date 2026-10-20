@@ -1,11 +1,12 @@
 import React from "react";
 import { Client, getStateCallbacks } from "colyseus.js";
 import type { Room } from "colyseus.js";
-import type { GameState } from "@quiiven/protocol";
+import type { GameState, Player } from "@quiiven/protocol";
 import type { AvatarConfig } from "../avatar/config";
 import type { PresenceStatus } from "./status";
 import type { SmartObject } from "./objects";
 import { loadDesk, saveDesk, type DeskCustom } from "../avatar/desk";
+import { randomAvatar } from "../avatar/config";
 
 export interface MoveOut {
   x: number;
@@ -45,6 +46,20 @@ export interface KnockEntry {
   ts: number;
 }
 
+/** Someone near your locked conversation asking to join. */
+export interface BubbleKnock {
+  bubble: string;
+  from: string;
+  name: string;
+  ts: number;
+}
+
+/** Preview only: fake colleagues on the map (no server). */
+export interface DemoState {
+  selfId: string;
+  players: Map<string, Player>;
+}
+
 /** One-off room events for the UI (let in / door closed). */
 export interface RoomEvent {
   type: "admitted" | "locked";
@@ -80,6 +95,14 @@ export interface NetHandle {
   /** Fixed Meet link of the room you are in ("" removes it). */
   sendRoomMeet(zone: string, url: string): void;
   sendDm(to: string, text: string): void;
+  /** Lock the conversation with the people around you (their session ids). */
+  sendBubbleLock(withIds: string[]): void;
+  sendBubbleLeave(): void;
+  /** Ask a locked conversation to let you in. */
+  sendBubbleKnock(bubble: string): void;
+  sendBubbleAdmit(to: string): void;
+  /** Preview only: fake colleagues standing on the map. */
+  demoState?: DemoState;
   /** Make a desk yours (frees your previous one) with its decoration. */
   sendDeskClaim(deskId: number, config: object): void;
   sendDeskUpdate(config: object): void;
@@ -171,6 +194,8 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
   const [deskEvent, setDeskEvent] = React.useState<{ deskId: number; owner: string; ts: number } | null>(null);
   /** The server gave you a desk in your team's office (team from Airtable). */
   const [deskAssigned, setDeskAssigned] = React.useState<{ deskId: number; zone: string; ts: number } | null>(null);
+  const [bubbleKnocks, setBubbleKnocks] = React.useState<BubbleKnock[]>([]);
+  const [bubbleEvent, setBubbleEvent] = React.useState<{ type: "admitted"; by: string; ts: number } | null>(null);
   const addDm = React.useCallback((d: DmEntry) => setDms((prev) => [...prev.slice(-199), d]), []);
   const [net] = React.useState<NetHandle>(() =>
     DEMO
@@ -198,6 +223,7 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
               else delete n[zone];
               return n;
             }),
+          ...demoBubbles(name, setBubbleKnocks, setBubbleEvent),
           sendDeskClaim: (deskId, config) =>
             setDesks((m) => {
               if (m[deskId] && m[deskId].ownerKey !== DEMO_KEY) {
@@ -272,6 +298,10 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
           sendAdmit: (zone, to) => roomRef.current?.send("room-admit", { zone, to }),
           sendRoomMeet: (zone, url) => roomRef.current?.send("room-meet", { zone, url }),
           sendDm: (to, text) => roomRef.current?.send("dm", { to, text }),
+          sendBubbleLock: (withIds) => roomRef.current?.send("bubble-lock", { with: withIds }),
+          sendBubbleLeave: () => roomRef.current?.send("bubble-leave", {}),
+          sendBubbleKnock: (bubble) => roomRef.current?.send("bubble-knock", { bubble }),
+          sendBubbleAdmit: (to) => roomRef.current?.send("bubble-admit", { to }),
           sendDeskClaim: (deskId, config) => roomRef.current?.send("desk-claim", { deskId, config }),
           sendDeskUpdate: (config) => roomRef.current?.send("desk-update", { config }),
           sendDeskRelease: (deskId) => roomRef.current?.send("desk-release", deskId === undefined ? {} : { deskId }),
@@ -334,7 +364,13 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
     if (!DEMO) return;
     let cancelled = false;
     setStatus("demo");
-    setRoster([{ id: "self", name, self: true }, { id: DEMO_BOT.id, name: DEMO_BOT.name, self: false }]);
+    setRoster([
+      { id: "self", name, self: true },
+      { id: DEMO_BOT.id, name: DEMO_BOT.name, self: false },
+      { id: "demo-juli", name: "Juli (prueba)", self: false },
+      { id: "demo-sara", name: "Sara (prueba)", self: false },
+      { id: "demo-manu", name: "Manu (prueba)", self: false },
+    ]);
     const base = import.meta.env.BASE_URL;
     Promise.all(
       ["objects.json", "walls.json"].map((f) =>
@@ -448,6 +484,10 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
       const syncMe = () => setMyKey(room?.state.players.get(room.sessionId)?.key ?? "");
       $(room.state).players.onAdd(syncMe);
       syncMe();
+      room.onMessage("bubble-knock", (k: BubbleKnock) =>
+        setBubbleKnocks((prev) => [...prev.filter((x) => x.from !== k.from), k]),
+      );
+      room.onMessage("bubble-admitted", (m: { by: string }) => setBubbleEvent({ type: "admitted", by: m.by, ts: Date.now() }));
       room.onMessage("desk-assigned", (m: { deskId: number; zone: string }) =>
         setDeskAssigned({ deskId: m.deskId, zone: m.zone, ts: Date.now() }),
       );
@@ -500,10 +540,89 @@ export function useColyseusRoom(name: string, opts?: { hidden?: boolean; avatar?
     [name],
   );
 
+  const dismissBubbleKnock = React.useCallback(
+    (k: BubbleKnock) => setBubbleKnocks((prev) => prev.filter((x) => x !== k)),
+    [],
+  );
   const dismissKnock = React.useCallback(
     (k: KnockEntry) => setKnocks((prev) => prev.filter((x) => x !== k)),
     [],
   );
 
-  return { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent, deskAssigned };
+  return { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent, deskAssigned, bubbleKnocks, dismissBubbleKnock, bubbleEvent };
+}
+
+/**
+ * Preview: three test colleagues so locked conversations can be tried.
+ * Quiivi stands in Recepción (lock a conversation with her; a minute later
+ * Juli comes to knock), and Sara & Manu talk in a locked one in the garden.
+ */
+function demoBubbles(
+  selfName: string,
+  setKnocks: React.Dispatch<React.SetStateAction<BubbleKnock[]>>,
+  setEvent: (e: { type: "admitted"; by: string; ts: number }) => void,
+): Pick<NetHandle, "sendBubbleLock" | "sendBubbleLeave" | "sendBubbleKnock" | "sendBubbleAdmit" | "demoState"> {
+  const mk = (name: string, x: number, y: number, bubble = "", dir = "down"): Player =>
+    ({
+      ...randomAvatar(name),
+      accessories: [],
+      name,
+      x,
+      y,
+      dir,
+      anim: "idle",
+      zoneId: "",
+      status: "available",
+      bubble,
+      key: "",
+      color: 0,
+    }) as unknown as Player;
+  const players = new Map<string, Player>([
+    ["self", mk(selfName, 0, 0)],
+    [DEMO_BOT.id, mk(DEMO_BOT.name, 1700, 1650, "", "left")],
+    ["demo-juli", mk("Juli (prueba)", 2000, 1640, "", "left")],
+    ["demo-sara", mk("Sara (prueba)", 1560, 1110, "b-garden", "right")],
+    ["demo-manu", mk("Manu (prueba)", 1610, 1110, "b-garden", "left")],
+  ]);
+  const self = players.get("self")!;
+  let knockTimer = 0;
+  const membersOf = (b: string) => [...players.entries()].filter(([, p]) => p.bubble === b).map(([id]) => id);
+  return {
+    demoState: { selfId: "self", players },
+    sendBubbleLock: (ids) => {
+      if (self.bubble) return;
+      self.bubble = "b-mine";
+      for (const id of ids) {
+        const p = players.get(id);
+        if (p && !p.bubble) p.bubble = "b-mine";
+      }
+      // A colleague walks up and asks to join, so the "let in" flow can be seen.
+      window.clearTimeout(knockTimer);
+      knockTimer = window.setTimeout(() => {
+        if (self.bubble !== "b-mine" || players.get("demo-juli")!.bubble) return;
+        setKnocks((k) => [...k.filter((x) => x.from !== "demo-juli"), { bubble: "b-mine", from: "demo-juli", name: "Juli (prueba)", ts: Date.now() }]);
+      }, 5000);
+    },
+    sendBubbleLeave: () => {
+      const b = self.bubble;
+      if (!b) return;
+      self.bubble = "";
+      const rest = membersOf(b);
+      // Sara & Manu keep talking among themselves.
+      if (b === "b-mine") for (const id of rest) players.get(id)!.bubble = "";
+    },
+    sendBubbleKnock: (bubble) => {
+      if (self.bubble || !membersOf(bubble).length) return;
+      window.setTimeout(() => {
+        if (self.bubble) return;
+        const by = players.get(membersOf(bubble)[0])?.name ?? "";
+        self.bubble = bubble;
+        setEvent({ type: "admitted", by, ts: Date.now() });
+      }, 1500);
+    },
+    sendBubbleAdmit: (to) => {
+      const p = players.get(to);
+      if (p && self.bubble && !p.bubble) p.bubble = self.bubble;
+    },
+  };
 }

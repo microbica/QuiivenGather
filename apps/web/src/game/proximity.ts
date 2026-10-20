@@ -6,6 +6,8 @@
 export interface PeerZone {
   zoneId: string;
   zoneKind: string; // "private" | "interact" | ""
+  /** Locked conversation ("bubble") id; "" = none. */
+  bubble?: string;
 }
 
 export function distancePx(
@@ -25,6 +27,8 @@ export function isConnected(
   distPx: number,
   radiusPx: number,
 ): boolean {
+  // A locked conversation wins over everything: only its members hear each other.
+  if (self.bubble || peer.bubble) return !!self.bubble && self.bubble === peer.bubble;
   const selfPriv = privateId(self);
   const peerPriv = privateId(peer);
   if (selfPriv || peerPriv) return selfPriv !== "" && selfPriv === peerPriv;

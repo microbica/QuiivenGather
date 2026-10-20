@@ -1,5 +1,6 @@
 import React from "react";
-import type { ChatEntry, DmEntry, RosterEntry } from "../game/useColyseus";
+import type { BubbleKnock, ChatEntry, DmEntry, RosterEntry } from "../game/useColyseus";
+import type { BubbleInfo } from "../game/GameCanvas";
 import { AvatarCanvas } from "../avatar/AvatarCanvas";
 import { randomAvatar } from "../avatar/config";
 
@@ -17,11 +18,35 @@ interface Props {
   onOpenChat: () => void;
   /** Unread private messages (for the folded-chat tab). */
   onUnreadChange?: (n: number) => void;
+  /** Locked conversation ("burbuja") with the people around you. */
+  bubble: BubbleInfo;
+  bubbleKnocks: BubbleKnock[];
+  onLockBubble: () => void;
+  onLeaveBubble: () => void;
+  onAdmitBubble: (k: BubbleKnock) => void;
+  onDismissBubbleKnock: (k: BubbleKnock) => void;
 }
 
 const firstName = (n: string) => n.split(" ")[0];
 
-export function Sidebar({ roster, nearby, messages, sendChat, chatOpen, onCloseChat, dms, sendDm, onOpenChat, onUnreadChange }: Props) {
+export function Sidebar({
+  roster,
+  nearby,
+  messages,
+  sendChat,
+  chatOpen,
+  onCloseChat,
+  dms,
+  sendDm,
+  onOpenChat,
+  onUnreadChange,
+  bubble,
+  bubbleKnocks,
+  onLockBubble,
+  onLeaveBubble,
+  onAdmitBubble,
+  onDismissBubbleKnock,
+}: Props) {
   const [draft, setDraft] = React.useState("");
   const chatEnd = React.useRef<HTMLDivElement>(null);
   /** "general" or the session id of the person you are chatting with. */
@@ -83,11 +108,52 @@ export function Sidebar({ roster, nearby, messages, sendChat, chatOpen, onCloseC
 
   return (
     <>
-      {nearby.length > 0 && (
-        <section className="q-panel" style={{ maxHeight: 260, overflowY: "auto" }}>
+      {(nearby.length > 0 || bubble.mine) && (
+        <section className={`q-panel${bubble.mine ? " q-bubble-card" : ""}`} style={{ maxHeight: 300, overflowY: "auto" }}>
           <h3 className="q-eyebrow">
-            <span>Cerca de ti · {nearby.length}</span>
+            {bubble.mine ? (
+              <>
+                <span>🔒 Conversación privada · {bubble.mine.members.length + 1}</span>
+                <button type="button" className="q-btn q-btn--ghost q-btn--sm" onClick={onLeaveBubble} title="Salir de la conversación privada">
+                  Salir
+                </button>
+              </>
+            ) : (
+              <>
+                <span>Cerca de ti · {nearby.length}</span>
+                {bubble.canLock && (
+                  <button
+                    type="button"
+                    className="q-btn q-btn--outline q-btn--sm"
+                    onClick={onLockBubble}
+                    title="Solo ustedes se escuchan; quien se acerque tendrá que pedir unirse"
+                  >
+                    🔒 Cerrar conversación
+                  </button>
+                )}
+              </>
+            )}
           </h3>
+          {bubble.mine && (
+            <p className="q-small q-muted" style={{ margin: "0 0 8px" }}>
+              Solo ustedes se escuchan. Quien se acerque tiene que pedir unirse.
+            </p>
+          )}
+          {bubbleKnocks.map((k) => (
+            <div key={`${k.from}-${k.ts}`} className="q-bubble-knock" role="alert">
+              <span>
+                ✋ <strong>{k.name.split(" ")[0]}</strong> quiere unirse
+              </span>
+              <span style={{ display: "flex", gap: 4 }}>
+                <button type="button" className="q-btn q-btn--primary q-btn--sm" onClick={() => onAdmitBubble(k)}>
+                  Dejar entrar
+                </button>
+                <button type="button" className="q-btn q-btn--ghost q-btn--sm" onClick={() => onDismissBubbleKnock(k)} aria-label="Ahora no">
+                  ✕
+                </button>
+              </span>
+            </div>
+          ))}
           {nearPeople.map((r) => (
             <div key={r.id} className="q-person">
               <span className="q-avatar-mini" data-near={true}>

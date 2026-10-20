@@ -16,7 +16,7 @@ import { ReminderToasts } from "./ui/ReminderToasts";
 import { makeBoardNet } from "./game/boards";
 import { DeskPanel } from "./ui/DeskPanel";
 import { defaultDesk, sanitizeDesk, type DeskCustom } from "./avatar/desk";
-import type { DeskAction, DeskView, Nav } from "./game/GameCanvas";
+import type { BubbleInfo, DeskAction, DeskView, Nav } from "./game/GameCanvas";
 import type { Zone } from "./game/mapLoader";
 import { isMeetingRoom } from "@quiiven/protocol";
 import { RoomsPanel } from "./ui/RoomsPanel";
@@ -140,7 +140,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     setProfileOpen(false);
     setProfileIsNew(false);
   }, []);
-  const { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent, deskAssigned } = useColyseusRoom(name, { avatar });
+  const { status, roster, messages, sendChat, net, meetUrl, objects, locks, roomMeets, dms, knocks, dismissKnock, roomEvent, desks, myKey, deskEvent, deskAssigned, bubbleKnocks, dismissBubbleKnock, bubbleEvent } = useColyseusRoom(name, { avatar });
 
   // "Mi escritorio": desks are claimed on the server, one per person, so
   // everybody sees whose desk is whose and nobody can take a claimed one.
@@ -226,6 +226,17 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
     } else say(`🔒 ${z?.label ?? "La sala"} está cerrada${roomEvent.by ? ` por ${roomEvent.by}` : ""}.`);
   }, [roomEvent]);
   const [chatUnread, setChatUnread] = React.useState(0);
+  // Locked conversations ("burbujas") around you.
+  const [bubble, setBubble] = React.useState<BubbleInfo>({ mine: null, lockedNear: null, canLock: false });
+  const [knockedBubble, setKnockedBubble] = React.useState("");
+  React.useEffect(() => {
+    if (!bubble.lockedNear) setKnockedBubble("");
+  }, [bubble.lockedNear]);
+  React.useEffect(() => {
+    if (!bubbleEvent) return;
+    setKnockedBubble("");
+    say(bubbleEvent.by ? `✅ ${bubbleEvent.by.split(" ")[0]} te dejó entrar a la conversación privada` : "✅ Te dejaron entrar a la conversación privada");
+  }, [bubbleEvent, say]);
   const assignedShown = React.useRef(0);
   React.useEffect(() => {
     // Wait for the map so the toast can name the office.
@@ -325,6 +336,18 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
         sendDm={net.sendDm}
         onOpenChat={() => setChatOpen(true)}
         onUnreadChange={setChatUnread}
+        bubble={bubble}
+        bubbleKnocks={bubbleKnocks}
+        onLockBubble={() => net.sendBubbleLock(nearby)}
+        onLeaveBubble={() => {
+          net.sendBubbleLeave();
+          bubbleKnocks.forEach(dismissBubbleKnock);
+        }}
+        onAdmitBubble={(k) => {
+          net.sendBubbleAdmit(k.from);
+          dismissBubbleKnock(k);
+        }}
+        onDismissBubbleKnock={dismissBubbleKnock}
       />
       </aside>
       <VoicePanel
@@ -357,7 +380,7 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           {chatUnread > 0 && <span className="q-chat__badge q-chat__badge--tab">{chatUnread}</span>}
         </button>
       )}
-      <GameCanvas name={name} avatar={draftAvatar ?? avatar} desks={deskViews} onDeskAction={onDeskAction} locks={locks} navRef={navRef} onZones={setZones} onZoneChange={setCurrentZone} onOccupancy={setOccupancy} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
+      <GameCanvas name={name} avatar={draftAvatar ?? avatar} desks={deskViews} onDeskAction={onDeskAction} locks={locks} navRef={navRef} onZones={setZones} onZoneChange={setCurrentZone} onOccupancy={setOccupancy} onBubble={setBubble} net={net} netStatus={status} objects={objects} isAdmin={isAdmin} adminMode={adminMode} onNearby={onNearby} onObject={onObject} onPosition={onPosition} onAdminModeChange={setAdminMode} calendarOpen={calendarOpen} onCalendarOpenChange={setCalendarOpen} onEditProfile={() => setProfileOpen(true)} audio={voice.audio} myStatus={myStatus} onStatusChange={setMyStatus} />
       <RoomsPanel
         zones={zones}
         occupancy={occupancy}
@@ -395,6 +418,28 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
           }}
           onDismissKnock={dismissKnock}
         />
+      )}
+      {bubble.lockedNear && (
+        <div className="q-panel q-bubble-near" role="status">
+          <span className="q-bubble-near__lock" aria-hidden="true">🔒</span>
+          <span>
+            <strong>{listNames(bubble.lockedNear.names)}</strong> están en una conversación privada
+          </span>
+          {knockedBubble === bubble.lockedNear.bubble ? (
+            <span className="q-small q-muted">Esperando que te dejen entrar…</span>
+          ) : (
+            <button
+              type="button"
+              className="q-btn q-btn--primary q-btn--sm"
+              onClick={() => {
+                net.sendBubbleKnock(bubble.lockedNear!.bubble);
+                setKnockedBubble(bubble.lockedNear!.bubble);
+              }}
+            >
+              Pedir unirme
+            </button>
+          )}
+        </div>
       )}
       {toast && (
         <div key={toast.ts} className="q-panel q-toast" role="status">
@@ -460,6 +505,13 @@ function GameApp({ name, isAdmin }: { name: string; isAdmin: boolean }) {
       )}
     </div>
   );
+}
+
+/** "Ana", "Ana y Juan", "Ana, Juan y 2 más". */
+function listNames(names: string[]): string {
+  const first = names.map((n) => n.split(" ")[0]);
+  if (first.length <= 2) return first.join(" y ");
+  return `${first[0]}, ${first[1]} y ${first.length - 2} más`;
 }
 
 /** Design-preview mode: skips Google login so the UI can be reviewed without a server. */

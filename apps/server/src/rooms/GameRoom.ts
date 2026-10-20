@@ -214,6 +214,12 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("room-meet", (client, msg: { zone?: unknown; url?: unknown }) =>
       this.handleRoomMeet(client, msg),
     );
+    // Conversación cerrada por cercanía ("burbuja"): cerrar, salir, pedir
+    // unirse y dejar entrar. El audio lo filtra cada cliente con Player.bubble.
+    this.onMessage("bubble-lock", (client, msg: { with?: unknown }) => this.handleBubbleLock(client, msg));
+    this.onMessage("bubble-leave", (client) => this.leaveBubble(client.sessionId));
+    this.onMessage("bubble-knock", (client, msg: { bubble?: unknown }) => this.handleBubbleKnock(client, msg));
+    this.onMessage("bubble-admit", (client, msg: { to?: unknown }) => this.handleBubbleAdmit(client, msg));
     // Chat privado 1 a 1: solo lo recibe el destinatario (y el eco al emisor).
     this.onMessage("dm", (client, msg: { to?: unknown; text?: unknown }) =>
       this.handleDm(client, msg),
@@ -397,6 +403,7 @@ export class GameRoom extends Room<GameState> {
     this.lastKnockAt.delete(client.sessionId);
     this.lastDmAt.delete(client.sessionId);
     this.emails.delete(client.sessionId);
+    this.leaveBubble(client.sessionId);
     // Guests' desks only live while they are connected.
     this.dropDesksOf(`g-${client.sessionId}`);
     this.releaseEmptyLocks();
@@ -424,6 +431,12 @@ export class GameRoom extends Room<GameState> {
     const left = p.zoneId !== zone;
     p.zoneId = zone;
     if (left) this.releaseEmptyLocks();
+    // Walking away from everybody in your locked conversation takes you out.
+    if (p.bubble) {
+      const others = this.bubbleMembers(p.bubble).filter((id) => id !== client.sessionId);
+      if (!others.some((id) => Math.hypot(this.state.players.get(id)!.x - p.x, this.state.players.get(id)!.y - p.y) <= GameRoom.BUBBLE_REACH * 1.25))
+        this.leaveBubble(client.sessionId);
+    }
   }
 
   private hasDesk(key: string): boolean {
@@ -532,6 +545,71 @@ export class GameRoom extends Room<GameState> {
     this.dropDesksOf(p.key);
     const email = this.emails.get(client.sessionId);
     if (email) await releaseDesk({ email }).catch((e) => console.error("[game] release desk failed:", e));
+  }
+
+  private bubbleMembers(bubble: string): string[] {
+    const ids: string[] = [];
+    if (!bubble) return ids;
+    this.state.players.forEach((pl, id) => {
+      if (pl.bubble === bubble) ids.push(id);
+    });
+    return ids;
+  }
+
+  /** Max distance (px) to lock or join a conversation: voice radius + slack. */
+  private static BUBBLE_REACH = 8 * 32;
+
+  private near(a: Player, b: Player): boolean {
+    return Math.hypot(a.x - b.x, a.y - b.y) <= GameRoom.BUBBLE_REACH;
+  }
+
+  private handleBubbleLock(client: Client, msg: { with?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    if (!p || p.bubble || !Array.isArray(msg?.with)) return;
+    const others = (msg.with as unknown[])
+      .filter((id): id is string => typeof id === "string" && id !== client.sessionId)
+      .slice(0, 24)
+      .filter((id) => {
+        const o = this.state.players.get(id);
+        return !!o && !o.bubble && this.near(p, o);
+      });
+    if (!others.length) return;
+    const id = `b-${randomBytes(4).toString("hex")}`;
+    p.bubble = id;
+    for (const o of others) this.state.players.get(o)!.bubble = id;
+  }
+
+  /** Leaving: a conversation of one is no longer a conversation. */
+  private leaveBubble(sessionId: string) {
+    const p = this.state.players.get(sessionId);
+    if (!p?.bubble) return;
+    const bubble = p.bubble;
+    p.bubble = "";
+    const rest = this.bubbleMembers(bubble);
+    if (rest.length === 1) this.state.players.get(rest[0])!.bubble = "";
+  }
+
+  private handleBubbleKnock(client: Client, msg: { bubble?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    const bubble = typeof msg?.bubble === "string" ? msg.bubble : "";
+    if (!p || p.bubble || !bubble) return;
+    const members = this.bubbleMembers(bubble);
+    if (!members.length || !members.some((id) => this.near(p, this.state.players.get(id)!))) return;
+    const now = Date.now();
+    if (now - (this.lastKnockAt.get(client.sessionId) ?? 0) < 5000) return;
+    this.lastKnockAt.set(client.sessionId, now);
+    const set = new Set(members);
+    for (const c of this.clients) {
+      if (set.has(c.sessionId)) c.send("bubble-knock", { bubble, from: client.sessionId, name: p.name, ts: now });
+    }
+  }
+
+  private handleBubbleAdmit(client: Client, msg: { to?: unknown }) {
+    const p = this.state.players.get(client.sessionId);
+    const target = typeof msg?.to === "string" ? this.state.players.get(msg.to) : undefined;
+    if (!p?.bubble || !target || target.bubble) return;
+    target.bubble = p.bubble;
+    this.clients.find((c) => c.sessionId === msg.to)?.send("bubble-admitted", { by: p.name });
   }
 
   /** Session ids currently inside a zone. */

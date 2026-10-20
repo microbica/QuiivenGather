@@ -60,6 +60,11 @@ export class Player extends Schema {
   @type("string") status = "available";
   /** Opaque, stable id of the person (not the email): owner key of their desk. */
   @type("string") key = "";
+  /**
+   * Locked conversation ("bubble") the player is in; "" = none. Members only
+   * hear each other; others must ask to join and a member lets them in.
+   */
+  @type("string") bubble = "";
 }
 
 /** A desk somebody claimed as theirs ("Mi escritorio"). */
