@@ -134,7 +134,7 @@ function desks(r, count, opts = {}) {
   const ix0 = r.x0 + 1;
   const ix1 = r.x1 - 1;
   const iy0 = r.y0 + 2 + (opts.top ?? 0); // leave the plate row free
-  const iy1 = r.y1 - 1;
+  const iy1 = Math.min(r.y1 - 1, opts.maxY ?? Infinity);
   const podsPerRow = Math.max(1, Math.floor((ix1 - ix0 + 2) / 5));
   const rowW = podsPerRow * 5 - 1;
   const startX = ix0 + Math.floor((ix1 - ix0 + 1 - rowW) / 2);
@@ -157,7 +157,7 @@ function desks(r, count, opts = {}) {
       }
     }
   }
-  if (placed < count) throw new Error(`${r.id}: only ${placed}/${count} desks fit`);
+  if (Number.isFinite(count) && placed < count) throw new Error(`${r.id}: only ${placed}/${count} desks fit`);
   return placed;
 }
 
@@ -189,22 +189,22 @@ const rooms = [];
 
 // ---- NORTH-WEST: VENTAS (y 0..20) ----
 rooms.push(
-  room({ id: "ventas-jenn", name: "Ventas · Equipo Jenn", area: "ventas", x0: 0, y0: 0, x1: 14, y1: 9, doors: [{ side: "bottom", at: 6, size: 2 }], desks: 8 }),
-  room({ id: "ventas-direccion", name: "Dirección Comercial", area: "ventas", x0: 14, y0: 0, x1: 23, y1: 9, doors: [{ side: "bottom", at: 18, size: 2 }], desks: 2 }),
-  room({ id: "ventas-bahamon", name: "Ventas · Equipo Bahamon", area: "ventas", x0: 23, y0: 0, x1: 32, y1: 9, doors: [{ side: "bottom", at: 27, size: 2 }], desks: 4 }),
-  room({ id: "ventas-juanfer", name: "Ventas · Equipo Juanfer", area: "ventas", x0: 0, y0: 12, x1: 12, y1: 20, doors: [{ side: "top", at: 5, size: 2 }], desks: 6 }),
-  room({ id: "ventas-juanes", name: "Ventas · Equipo Juanes", area: "ventas", x0: 12, y0: 12, x1: 22, y1: 20, doors: [{ side: "top", at: 16, size: 2 }], desks: 4 }),
+  room({ id: "ventas-jenn", name: "Ventas · Equipo Jenn", area: "ventas", x0: 0, y0: 0, x1: 14, y1: 9, doors: [{ side: "bottom", at: 6, size: 2 }], people: 6 }),
+  room({ id: "ventas-direccion", name: "Dirección Comercial", area: "ventas", x0: 14, y0: 0, x1: 23, y1: 9, doors: [{ side: "bottom", at: 18, size: 2 }], people: 1 }),
+  room({ id: "ventas-bahamon", name: "Ventas · Equipo Bahamon", area: "ventas", x0: 23, y0: 0, x1: 32, y1: 9, doors: [{ side: "bottom", at: 27, size: 2 }], people: 2 }),
+  room({ id: "ventas-juanfer", name: "Ventas · Equipo Juanfer", area: "ventas", x0: 0, y0: 12, x1: 12, y1: 20, doors: [{ side: "top", at: 5, size: 2 }], people: 4 }),
+  room({ id: "ventas-juanes", name: "Ventas · Equipo Juanes", area: "ventas", x0: 12, y0: 12, x1: 22, y1: 20, doors: [{ side: "top", at: 16, size: 2 }], people: 3 }),
   room({ id: "ventas-sala", name: "Sala Ventas", area: "ventas", x0: 22, y0: 12, x1: 32, y1: 20, doors: [{ side: "top", at: 26, size: 2 }], meeting: 8 }),
 );
 
 // ---- NORTH-EAST: MARKETING (células) ----
 rooms.push(
-  room({ id: "mkt-col-c1", name: "MKT COL · Célula 1 Sara & Manu", area: "marketing", x0: 67, y0: 0, x1: 77, y1: 9, doors: [{ side: "bottom", at: 71, size: 2 }], desks: 6 }),
-  room({ id: "mkt-col-c2", name: "MKT COL · Célula 2 Juli & Bri", area: "marketing", x0: 77, y0: 0, x1: 88, y1: 9, doors: [{ side: "bottom", at: 82, size: 2 }], desks: 6 }),
-  room({ id: "mkt-c3-cin", name: "MKT COL+GT · Célula 3 Cin & Andrew", area: "marketing", x0: 88, y0: 0, x1: 99, y1: 9, doors: [{ side: "bottom", at: 93, size: 2 }], desks: 4 }),
-  room({ id: "mkt-gt-c1", name: "MKT GT+MX · Célula 1 Vivi & Mari", area: "marketing", x0: 67, y0: 12, x1: 77, y1: 20, doors: [{ side: "top", at: 71, size: 2 }], desks: 4 }),
-  room({ id: "mkt-gt-c2", name: "MKT GT+MX · Célula 2 JuanDa & Carlos", area: "marketing", x0: 77, y0: 12, x1: 88, y1: 20, doors: [{ side: "top", at: 82, size: 2 }], desks: 4 }),
-  room({ id: "mkt-gt-c3", name: "MKT GT+MX · Célula 3 Camilo & MariWar", area: "marketing", x0: 88, y0: 12, x1: 99, y1: 20, doors: [{ side: "top", at: 93, size: 2 }], desks: 4 }),
+  room({ id: "mkt-col-c1", name: "MKT COL · Célula 1 Sara & Manu", area: "marketing", x0: 67, y0: 0, x1: 77, y1: 9, doors: [{ side: "bottom", at: 71, size: 2 }], people: 4 }),
+  room({ id: "mkt-col-c2", name: "MKT COL · Célula 2 Juli & Bri", area: "marketing", x0: 77, y0: 0, x1: 88, y1: 9, doors: [{ side: "bottom", at: 82, size: 2 }], people: 4 }),
+  room({ id: "mkt-c3-cin", name: "MKT COL+GT · Célula 3 Cin & Andrew", area: "marketing", x0: 88, y0: 0, x1: 99, y1: 9, doors: [{ side: "bottom", at: 93, size: 2 }], people: 2 }),
+  room({ id: "mkt-gt-c1", name: "MKT GT+MX · Célula 1 Vivi & Mari", area: "marketing", x0: 67, y0: 12, x1: 77, y1: 20, doors: [{ side: "top", at: 71, size: 2 }], people: 2 }),
+  room({ id: "mkt-gt-c2", name: "MKT GT+MX · Célula 2 JuanDa & Carlos", area: "marketing", x0: 77, y0: 12, x1: 88, y1: 20, doors: [{ side: "top", at: 82, size: 2 }], people: 3 }),
+  room({ id: "mkt-gt-c3", name: "MKT GT+MX · Célula 3 Camilo & MariWar", area: "marketing", x0: 88, y0: 12, x1: 99, y1: 20, doors: [{ side: "top", at: 93, size: 2 }], people: 3 }),
 );
 
 // ---- NORTH-CENTER: AUDITORIO (todos) ----
@@ -228,8 +228,8 @@ rooms.push(audi);
 
 // ---- MIDDLE-WEST: TECH + OPERACIONES ----
 rooms.push(
-  room({ id: "tech", name: "Tech", area: "tech", x0: 0, y0: 24, x1: 16, y1: 37, doors: [{ side: "top", at: 7, size: 2 }], desks: 6 }),
-  room({ id: "operaciones", name: "Operaciones", area: "operaciones", x0: 16, y0: 24, x1: 32, y1: 37, doors: [{ side: "top", at: 23, size: 2 }], desks: 6 }),
+  room({ id: "tech", name: "Tech", area: "tech", x0: 0, y0: 24, x1: 16, y1: 37, doors: [{ side: "top", at: 7, size: 2 }], people: 5 }),
+  room({ id: "operaciones", name: "Operaciones", area: "operaciones", x0: 16, y0: 24, x1: 32, y1: 37, doors: [{ side: "top", at: 23, size: 2 }], people: 4 }),
 );
 
 // ---- MIDDLE-EAST: RESTAURANTE + PAUSA ACTIVA ----
@@ -243,8 +243,8 @@ rooms.push(
   room({ id: "sala-2", name: "Sala 2", area: "general", floor: G.meeting, x0: 8, y0: 41, x1: 16, y1: 48, doors: [{ side: "top", at: 11, size: 2 }], meeting: 6 }),
   room({ id: "sala-3", name: "Sala 3", area: "general", floor: G.meeting, x0: 16, y0: 41, x1: 24, y1: 48, doors: [{ side: "top", at: 19, size: 2 }], meeting: 6 }),
   room({ id: "sala-4", name: "Sala 4", area: "general", floor: G.meeting, x0: 24, y0: 41, x1: 32, y1: 48, doors: [{ side: "top", at: 27, size: 2 }], meeting: 6 }),
-  room({ id: "finanzas", name: "Finanzas", area: "finanzas", x0: 0, y0: 51, x1: 13, y1: 59, doors: [{ side: "top", at: 6, size: 2 }], desks: 5 }),
-  room({ id: "rrhh", name: "Talento Humano", area: "personas", x0: 13, y0: 51, x1: 22, y1: 59, doors: [{ side: "top", at: 17, size: 2 }], desks: 3 }),
+  room({ id: "finanzas", name: "Finanzas", area: "finanzas", x0: 0, y0: 51, x1: 13, y1: 59, doors: [{ side: "top", at: 6, size: 2 }], people: 4 }),
+  room({ id: "rrhh", name: "Talento Humano", area: "personas", x0: 13, y0: 51, x1: 22, y1: 59, doors: [{ side: "top", at: 17, size: 2 }], people: 2 }),
   room({ id: "ceo", name: "Oficina CEO", area: "direccion", x0: 22, y0: 51, x1: 32, y1: 59, doors: [{ side: "top", at: 26, size: 2 }], ceo: true }),
 );
 
@@ -273,9 +273,21 @@ for (const [i, x0] of [87, 91, 95].entries()) {
   );
 }
 
+/** Stable desk id: 100000 + tileX * 100 + tileY. */
+function deskId(d) {
+  return 100000 + Math.round(d.x) * 100 + Math.round(d.y);
+}
+
 // ---- Furnish rooms ----
+const deskCount = [];
 for (const r of rooms) {
-  if (r.desks) desks(r, r.desks);
+  // Every team room gets as many desks as fit: one per person plus free ones
+  // for new people (Tech/Operaciones keep their lounge corner).
+  if (r.people) {
+    const n = desks(r, Infinity, { maxY: r.id === "tech" || r.id === "operaciones" ? 31 : undefined });
+    if (n < r.people + 2) throw new Error(`${r.id}: ${n} desks for ${r.people} people`);
+    deskCount.push([r.name, r.people, n]);
+  }
   if (r.meeting) meetingTable(r, r.meeting);
   if (r.booth) {
     put("desk", r.x0 + 1, r.y0 + 3, 2, 1, { color: "#2c2c33", facing: "down" });
@@ -500,8 +512,10 @@ const map = {
       id: 6,
       name: "decor",
       type: "objectgroup",
+      // Desks get an id from their tile position so a claimed desk keeps its
+      // owner when the map is regenerated with other changes.
       objects: decor.map((d) => ({
-        id: nextId++,
+        id: d.type === "desk" ? deskId(d) : nextId++,
         name: d.props.label ?? "",
         type: d.type,
         x: d.x * TW,
@@ -516,13 +530,23 @@ const map = {
     },
   ],
 };
-map.nextobjectid = nextId;
+map.nextobjectid = Math.max(nextId, ...decor.filter((d) => d.type === "desk").map(deskId)) + 1;
 
 writeFileSync(new URL("../apps/web/public/maps/demo.tmj", import.meta.url), JSON.stringify(map));
 writeFileSync(new URL("../apps/web/public/walls.json", import.meta.url), JSON.stringify(wallsJson, null, 2));
 writeFileSync(new URL("../apps/web/public/objects.json", import.meta.url), JSON.stringify(smartObjects, null, 2));
-const desksTotal = decor.filter((d) => d.type === "desk").length;
+// Desks per team office (server: auto-assign a free desk of your team).
+const deskList = decor
+  .filter((d) => d.type === "desk" && !d.props.exec)
+  .map((d) => {
+    const z = zones.find((q) => d.x >= q.x && d.x < q.x + q.w && d.y >= q.y && d.y < q.y + q.h);
+    return { deskId: deskId(d), zone: z?.id ?? "", color: d.props.color ?? "" };
+  })
+  .filter((d) => d.zone && !d.zone.startsWith("cabina"));
+writeFileSync(new URL("../apps/web/public/desks.json", import.meta.url), JSON.stringify(deskList));
+const desksTotalX = decor.filter((d) => d.type === "desk").length;
+console.table(deskCount.map(([sala, personas, escritorios]) => ({ sala, personas, escritorios })));
 console.log(
-  `demo.tmj: ${W}x${H} tiles · ${zones.length} zonas · ${desksTotal} escritorios · ${seats} sillas auditorio · ${decor.length} muebles · ${collisions.length} colisiones`,
+  `demo.tmj: ${W}x${H} tiles · ${zones.length} zonas · ${desksTotalX} escritorios · ${seats} sillas auditorio · ${decor.length} muebles · ${collisions.length} colisiones`,
 );
 console.log(`walls.json: ${wallsJson.length} muros · objects.json: ${smartObjects.length} objetos`);

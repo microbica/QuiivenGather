@@ -3,10 +3,14 @@ import { Application, Container, Graphics, Sprite, Text, Texture, FederatedPoint
 import { CLIENT_SPEED, PLAYER_H, PLAYER_W, TILE, type Player } from "@quiiven/protocol";
 import {
   moveWithCollision,
+  overlaps,
   parseMap,
   zoneAt,
+  type AABB,
   type GameMap,
+  type Zone,
 } from "./mapLoader";
+import { buildNavGrid, findPath, type NavGrid, type Pt } from "./pathfind";
 import { distancePx, isConnected } from "./proximity";
 import { nearestObject, type SmartObject } from "./objects";
 import { makeObjectSprite, makeTile as drawTileSprite } from "./sprites";
@@ -14,6 +18,7 @@ import { drawDecor, drawFloor } from "./decor";
 import { avatarKey, sanitizeAvatar, type AvatarConfig } from "../avatar/config";
 import { AVATAR_H, gridToCanvas, paintAvatar, paintFace, type Facing, type Frame, type Pose } from "../avatar/render";
 import { paintPet } from "../avatar/pets";
+import { CHAIR_W, FLOOR_H, paintChair, paintDesk, paintFloor, type DeskCustom } from "../avatar/desk";
 import { ANIM_BY_ACTIVITY, buildInteractables, nearestInteractable, type Interactable } from "./interactions";
 import type { SpatialAudio } from "./spatialAudio";
 import { canHear, gainFor, normalizeStatus, STATUSES, STATUS_META, type PresenceStatus } from "./status";
@@ -50,6 +55,25 @@ interface Hud {
   chunks: string;
   zoom: number;
 }
+
+/** Lets the UI (rooms list, chat) walk the avatar somewhere by itself. */
+export interface Nav {
+  /** Walk to a room; "locked" if it is closed to you, "far" if unreachable. */
+  goToZone(zoneId: string): "ok" | "locked" | "far";
+  /** Walk to your desk and sit down. */
+  goToDesk(deskId: number): "ok" | "far";
+  /** You were let into a closed room. */
+  admit(zoneId: string): void;
+}
+
+/** A claimed desk to draw: its decoration, owner name and whether it's yours. */
+export interface DeskView {
+  custom: DeskCustom;
+  owner: string;
+  mine: boolean;
+}
+
+export type DeskAction = { type: "claim" | "edit"; deskId: number; roomName: string };
 
 interface Remote {
   c: Container;
@@ -373,11 +397,20 @@ interface ObjMarker {
   h: number;
 }
 
-export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
+export function GameCanvas({ name, avatar, desks, onDeskAction, locks, navRef, onZones, onZoneChange, onOccupancy, net, netStatus, objects, isAdmin, adminMode, onNearby, onObject, onPosition, onAdminModeChange, calendarOpen, onCalendarOpenChange, onEditProfile, audio, myStatus, onStatusChange }: { name: string; avatar: AvatarConfig; desks: DeskView[]; onDeskAction: (a: DeskAction) => void; locks: Record<string, string>; navRef: React.MutableRefObject<Nav | null>; onZones: (zones: Zone[]) => void; onZoneChange: (zone: Zone | null) => void; onOccupancy: (count: Record<string, number>) => void; net: NetHandle; netStatus?: NetStatus; objects: SmartObject[]; isAdmin: boolean; adminMode: boolean; onNearby: (ids: string[]) => void; onObject: (obj: SmartObject | null) => void; onPosition?: (x: number, y: number) => void; onAdminModeChange?: (on: boolean) => void; calendarOpen?: boolean; onCalendarOpenChange?: (on: boolean) => void; onEditProfile?: () => void; audio: SpatialAudio | null; myStatus?: string; onStatusChange?: (s: PresenceStatus) => void }) {
   const mountRef = React.useRef<HTMLDivElement>(null);
   /** Set by the E key or the hint button; consumed by the game loop. */
   const interactRef = React.useRef(false);
   const [hint, setHint] = React.useState<{ label: string; active: boolean } | null>(null);
+  /** Desk you are sitting at (to claim or customize it). */
+  const [seatDesk, setSeatDesk] = React.useState<{ deskId: number; roomName: string } | null>(null);
+  const desksRef = React.useRef(desks);
+  desksRef.current = desks;
+  const myDesk = desks.find((d) => d.mine)?.custom ?? null;
+  const renderDeskRef = React.useRef<() => void>(() => undefined);
+  React.useEffect(() => {
+    renderDeskRef.current();
+  }, [desks]);
   const avatarRef = React.useRef(avatar);
   avatarRef.current = avatar;
   const nameRef = React.useRef(name);
@@ -391,6 +424,10 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
   onObjectRef.current = onObject;
   const onPositionRef = React.useRef(onPosition);
   onPositionRef.current = onPosition;
+  const locksRef = React.useRef(locks);
+  locksRef.current = locks;
+  const zoneCbRef = React.useRef({ onZones, onZoneChange, onOccupancy });
+  zoneCbRef.current = { onZones, onZoneChange, onOccupancy };
   const audioRef = React.useRef(audio);
   audioRef.current = audio;
   const objectsRef = React.useRef(objects);
@@ -486,6 +523,72 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
         decorC.addChild(below);
         if (above) canopyC.addChild(above);
       }
+      // Claimed desks (everybody's) are repainted on top with their owner's
+      // decoration, chair, floor item and a name tag. Only changed desks rebuild.
+      const desksC = new Container();
+      decorC.addChild(desksC);
+      const desksById = new Map(map.decor.filter((d) => d.type === "desk").map((d) => [d.id, d]));
+      const drawn = new Map<number, { key: string; c: Container }>();
+      const pixelSprite = (grid: Parameters<typeof gridToCanvas>[0], x: number, y: number) => {
+        const tex = Texture.from(gridToCanvas(grid));
+        tex.source.scaleMode = "nearest";
+        const sp = new Sprite(tex);
+        sp.position.set(x, y);
+        sp.scale.set(2);
+        return sp;
+      };
+      const buildDesk = (v: DeskView, desk: (typeof map.decor)[number]) => {
+        const custom = v.custom;
+        const c = new Container();
+        const facing = desk.props.facing === "up" ? "up" : "down";
+        const glow = desk.props.color && /^#[0-9a-f]{6}$/i.test(desk.props.color) ? desk.props.color : "#18d3b8";
+        const sprite = pixelSprite(paintDesk(custom, facing, glow), desk.x, desk.y);
+        sprite.width = desk.w;
+        sprite.height = desk.h;
+        // Owner's chair (one tile toward the person) and the floor item beside it.
+        const chairY = facing === "down" ? desk.y - desk.h : desk.y + desk.h;
+        const chair = pixelSprite(paintChair(custom.chairStyle, custom.chairColor, facing), desk.x + (desk.w - CHAIR_W * 2) / 2, chairY + 6);
+        const floorItem = pixelSprite(paintFloor(custom.floor), desk.x - 4, chairY + desk.h - FLOOR_H * 2 + 2);
+        floorItem.visible = custom.floor !== "ninguno";
+        // Name tag on the edge facing the chair (yours in teal).
+        const tag = new Text({
+          text: v.owner.split(" ")[0] || "—",
+          style: { fontFamily: "Cera Pro, Montserrat, sans-serif", fontSize: 9, fontWeight: "700", fill: 0xffffff },
+          resolution: 2,
+        });
+        const tagW = tag.width + 10;
+        const tagBg = new Graphics()
+          .roundRect(0, 0, tagW, 13, 6)
+          .fill({ color: v.mine ? 0x0ead9a : 0x2c2c33 })
+          .stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
+        const tagC = new Container();
+        tagC.addChild(tagBg, tag);
+        tag.position.set(5, 1);
+        tagC.position.set(desk.x + desk.w / 2 - tagW / 2, facing === "down" ? desk.y - 6 : desk.y + desk.h - 7);
+        c.addChild(chair, floorItem, sprite, tagC);
+        return c;
+      };
+      const renderDesks = () => {
+        const want = new Map(desksRef.current.map((v) => [v.custom.deskId, v]));
+        for (const [id, d] of drawn) {
+          const v = want.get(id);
+          if (v && d.key === JSON.stringify(v)) continue;
+          desksC.removeChild(d.c);
+          // Own textures (not the shared cache), so they go with the sprites.
+          d.c.destroy({ children: true, texture: true, textureSource: true });
+          drawn.delete(id);
+        }
+        for (const [id, v] of want) {
+          if (drawn.has(id)) continue;
+          const desk = desksById.get(id);
+          if (!desk) continue;
+          const c = buildDesk(v, desk);
+          desksC.addChild(c);
+          drawn.set(id, { key: JSON.stringify(v), c });
+        }
+      };
+      renderDeskRef.current = renderDesks;
+      renderDesks();
 
       const groundChunks = buildLayer(map, map.ground, groundC);
       const wallChunks = buildLayer(map, map.walls, objectC);
@@ -641,6 +744,7 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
       let beforeActivity = { x: 0, y: 0 };
       let lastHintKey = "";
       let lastOwnStatus: PresenceStatus = "available";
+      let lastSeatDesk: number | null = null;
 
       // Debug overlay: collisions (red) + zones (blue).
       const overlay = new Graphics();
@@ -663,6 +767,12 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
         x: map.spawn.x - BODY_W / 2,
         y: map.spawn.y - BODY_H / 2,
       };
+      // ?debug only: jump to a point (center of the avatar, in map px).
+      if (debug)
+        (window as unknown as { qTeleport?: (x: number, y: number) => void }).qTeleport = (x, y) => {
+          pos.x = x - BODY_W / 2;
+          pos.y = y - BODY_H / 2;
+        };
       const cam = { x: 0, y: 0 };
       let zoom = 1;
       const remotes = new Map<string, Remote>();
@@ -691,6 +801,110 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
       disposers.push(() => {
         canvas.removeEventListener("wheel", onWheel);
       });
+
+      // ---- Click-to-move + "go to room" -------------------------------
+      /** Rooms you may enter while closed (you were inside or got let in). */
+      const admitted = new Set<string>();
+      /** Everything the avatar can't walk through right now. */
+      const blockers = (): AABB[] => {
+        const dynamicWalls = objectsRef.current
+          .filter((o) => o.kind === "wall")
+          .map((o) => {
+            // AABB of a rotated rect: w' = w·|cos θ| + h·|sin θ|, h' = w·|sin θ| + h·|cos θ|.
+            const rad = ((o.rotation ?? 0) * Math.PI) / 180;
+            const c = Math.abs(Math.cos(rad));
+            const sn = Math.abs(Math.sin(rad));
+            const bw = o.w * c + o.h * sn;
+            const bh = o.w * sn + o.h * c;
+            return { x: o.x + o.w / 2 - bw / 2, y: o.y + o.h / 2 - bh / 2, w: bw, h: bh };
+          });
+        // Closed rooms act as walls (unless you are already in the doorway).
+        const body = { x: pos.x, y: pos.y, w: BODY_W, h: BODY_H };
+        const closed = map.zones.filter(
+          (z) => locksRef.current[z.id] !== undefined && !admitted.has(z.id) && !overlaps(body, z),
+        );
+        return [...map.collisions, ...dynamicWalls, ...closed];
+      };
+      let grid: { key: string; g: NavGrid } | null = null;
+      const navGrid = (): NavGrid => {
+        const key = `${objectsRef.current.length}|${objectsRef.current.map((o) => `${o.x},${o.y},${o.rotation}`).join(";").length}|${Object.keys(locksRef.current).filter((z) => !admitted.has(z)).sort().join(",")}`;
+        if (!grid || grid.key !== key) grid = { key, g: buildNavGrid({ w: map.widthPx, h: map.heightPx }, { w: BODY_W, h: BODY_H }, blockers()) };
+        return grid.g;
+      };
+      /** Waypoints for the avatar center; null = not walking by itself. */
+      let path: Pt[] | null = null;
+      /** Furniture to use on arrival (clicked a chair, the coffee machine…). */
+      let pathUse: Interactable | null = null;
+      let stuckMs = 0;
+      const marker = new Graphics();
+      marker.visible = false;
+      world.addChild(marker);
+      const showMarker = (x: number, y: number) => {
+        marker.clear();
+        marker.ellipse(0, 0, 11, 6).stroke({ color: 0x18d3b8, width: 2.5 });
+        marker.ellipse(0, 0, 4, 2).fill({ color: 0x18d3b8 });
+        marker.position.set(x, y);
+        marker.alpha = 1;
+        marker.visible = true;
+      };
+      const walkTo = (x: number, y: number, use: Interactable | null = null): boolean => {
+        const p = findPath(navGrid(), { x: pos.x + BODY_W / 2, y: pos.y + BODY_H / 2 }, { x, y });
+        if (!p) return false;
+        path = p.length ? p : null;
+        pathUse = use;
+        stuckMs = 0;
+        const end = p[p.length - 1] ?? { x, y };
+        showMarker(end.x, end.y + BODY_H / 2);
+        return true;
+      };
+      navRef.current = {
+        goToZone: (zoneId) => {
+          const z = map.zones.find((q) => q.id === zoneId);
+          if (!z) return "far";
+          if (locksRef.current[zoneId] !== undefined && !admitted.has(zoneId) && zoneAt(pos.x + BODY_W / 2, pos.y + BODY_H / 2, map.zones)?.id !== zoneId) return "locked";
+          return walkTo(z.x + z.w / 2, z.y + z.h / 2) ? "ok" : "far";
+        },
+        goToDesk: (deskId) => {
+          const seat = interactables.find((it) => it.deskId === deskId);
+          if (!seat) return "far";
+          if (activity === seat) return "ok";
+          return walkTo(seat.x, seat.y - BODY_H / 2, seat) ? "ok" : "far";
+        },
+        admit: (zoneId) => {
+          admitted.add(zoneId);
+          grid = null;
+        },
+      };
+      disposers.push(() => {
+        navRef.current = null;
+      });
+      zoneCbRef.current.onZones(map.zones);
+      let downAt: { x: number; y: number } | null = null;
+      const toWorld = (e: PointerEvent) => {
+        const rect = canvas.getBoundingClientRect();
+        return { x: (e.clientX - rect.left) / zoom + cam.x, y: (e.clientY - rect.top) / zoom + cam.y };
+      };
+      const onDown = (e: PointerEvent) => {
+        downAt = e.button === 0 && !adminModeRef.current ? { x: e.clientX, y: e.clientY } : null;
+      };
+      const onUp = (e: PointerEvent) => {
+        if (!downAt || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 6) return;
+        downAt = null;
+        const w = toWorld(e);
+        // Clicked on (or right next to) furniture: walk there and use it.
+        const it = nearestInteractable(interactables, w.x, w.y + 6, 26);
+        if (it) walkTo(it.x, it.y - BODY_H / 2, it);
+        else walkTo(w.x, w.y);
+      };
+      canvas.addEventListener("pointerdown", onDown);
+      canvas.addEventListener("pointerup", onUp);
+      canvas.style.cursor = "pointer";
+      disposers.push(() => {
+        canvas.removeEventListener("pointerdown", onDown);
+        canvas.removeEventListener("pointerup", onUp);
+      });
+      let lastZoneId: string | null = null;
+      let lastOcc = "";
       let dir = "down";
       let anim: string = "idle";
       let lastHud = 0;
@@ -723,6 +937,30 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
           vx += KEYS[k].x;
           vy += KEYS[k].y;
         }
+        // Keys always win over walking by itself.
+        if (vx !== 0 || vy !== 0) path = null;
+        let stepMax = Infinity;
+        if (path && !keys.size) {
+          const t = path[0];
+          const dx = t.x - (pos.x + BODY_W / 2);
+          const dy = t.y - (pos.y + BODY_H / 2);
+          const d = Math.hypot(dx, dy);
+          if (d < 1.5) {
+            path.shift();
+            if (!path.length) {
+              path = null;
+              marker.visible = false;
+              // Arrived at a chair / coffee / mat: use it.
+              if (pathUse) interactRef.current = true;
+              pathUse = null;
+            }
+          } else {
+            vx = dx / d;
+            vy = dy / d;
+            stepMax = d;
+          }
+        }
+        if (marker.visible && !path) marker.visible = false;
         const moving = vx !== 0 || vy !== 0;
         const nowMs = performance.now();
         // Furniture: E (or the hint button) uses the nearest item or stands up;
@@ -751,30 +989,24 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
         }
         if (moving && !activity) {
           const len = Math.hypot(vx, vy);
-          // Colisión: estáticas del mapa + muros dinámicos (admin-added).
-          // Ventanas y puertas NO bloquean movimiento.
-          // AABB de un rectángulo rotado: w' = w·|cos θ| + h·|sin θ|,
-          // h' = w·|sin θ| + h·|cos θ|. Funciona para cualquier ángulo.
-          const dynamicWalls = objectsRef.current
-            .filter((o) => o.kind === "wall")
-            .map((o) => {
-              const rad = ((o.rotation ?? 0) * Math.PI) / 180;
-              const c = Math.abs(Math.cos(rad));
-              const s = Math.abs(Math.sin(rad));
-              const bw = o.w * c + o.h * s;
-              const bh = o.w * s + o.h * c;
-              const cx = o.x + o.w / 2;
-              const cy = o.y + o.h / 2;
-              return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
-            });
+          // Map collisions + admin walls + closed rooms. Windows/doors don't block.
+          const step = Math.min(SPEED * dt, stepMax);
           const next = moveWithCollision(
             pos,
-            (vx / len) * SPEED * dt,
-            (vy / len) * SPEED * dt,
+            (vx / len) * step,
+            (vy / len) * step,
             { w: BODY_W, h: BODY_H },
-            [...map.collisions, ...dynamicWalls],
+            blockers(),
             { w: map.widthPx, h: map.heightPx },
           );
+          // Walking by itself but blocked (someone closed a door): give up.
+          if (path) {
+            stuckMs = Math.abs(next.x - pos.x) + Math.abs(next.y - pos.y) < 0.01 ? stuckMs + dt * 1000 : 0;
+            if (stuckMs > 400) {
+              path = null;
+              pathUse = null;
+            }
+          }
           pos.x = next.x;
           pos.y = next.y;
           dir = Math.abs(vx) >= Math.abs(vy) ? (vx > 0 ? "right" : "left") : vy > 0 ? "down" : "up";
@@ -804,6 +1036,12 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
           if (key !== lastHintKey) {
             lastHintKey = key;
             setHint(next);
+          }
+          const deskId = activity?.deskId ?? null;
+          if (deskId !== lastSeatDesk) {
+            lastSeatDesk = deskId;
+            const z = zoneAt(pos.x + BODY_W / 2, pos.y + BODY_H / 2, map.zones);
+            setSeatDesk(deskId === null ? null : { deskId, roomName: z?.label ?? "" });
           }
         }
         local.c.position.set(Math.round(pos.x), Math.round(pos.y));
@@ -938,6 +1176,26 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
             onObjectRef.current(near);
           }
           const z = zoneAt(cx, cy, map.zones);
+          // Being inside a room when it gets closed keeps you allowed in it.
+          for (const id of admitted) if (locksRef.current[id] === undefined) admitted.delete(id);
+          if (z && locksRef.current[z.id] !== undefined) admitted.add(z.id);
+          if ((z?.id ?? "") !== lastZoneId) {
+            lastZoneId = z?.id ?? "";
+            zoneCbRef.current.onZoneChange(z);
+          }
+          // People per room (for the rooms list).
+          {
+            const occ: Record<string, number> = {};
+            if (z) occ[z.id] = 1;
+            room?.state?.players?.forEach((p, id) => {
+              if (id !== net.sessionId && p.zoneId) occ[p.zoneId] = (occ[p.zoneId] ?? 0) + 1;
+            });
+            const k = JSON.stringify(occ);
+            if (k !== lastOcc) {
+              lastOcc = k;
+              zoneCbRef.current.onOccupancy(occ);
+            }
+          }
           lastNearCount = connectedIds.length;
           onPositionRef.current?.(Math.round(pos.x), Math.round(pos.y));
           const key = connectedIds.slice().sort().join(",");
@@ -1115,6 +1373,27 @@ export function GameCanvas({ name, avatar, net, netStatus, objects, isAdmin, adm
           </>
         )}
       </div>
+      {seatDesk && (() => {
+        const claim = desks.find((d) => d.custom.deskId === seatDesk.deskId);
+        if (claim && !claim.mine)
+          return (
+            <span className="q-panel q-hint q-hint--desk q-hint--info">
+              <kbd aria-hidden="true">🪑</kbd>
+              Escritorio de {claim.owner.split(" ")[0]}
+            </span>
+          );
+        const mine = !!claim;
+        return (
+          <button
+            type="button"
+            className="q-panel q-hint q-hint--desk"
+            onClick={() => onDeskAction({ type: mine ? "edit" : "claim", deskId: seatDesk.deskId, roomName: seatDesk.roomName })}
+          >
+            <kbd aria-hidden="true">{mine ? "✎" : "★"}</kbd>
+            {mine ? "Personalizar mi escritorio" : myDesk ? "Cambiarme a este escritorio" : "Hacer mi escritorio"}
+          </button>
+        );
+      })()}
       {hint && (
         <button
           type="button"

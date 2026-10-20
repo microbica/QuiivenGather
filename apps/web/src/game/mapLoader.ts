@@ -18,6 +18,8 @@ export interface Zone extends AABB {
 
 /** Static furniture/decoration placed by the map generator ("decor" layer). */
 export interface DecorItem extends AABB {
+  /** Stable Tiled object id (the generator is deterministic). */
+  id: number;
   type: string;
   label: string;
   props: Record<string, string>;
@@ -39,6 +41,7 @@ export interface GameMap {
 }
 
 interface TmjObject {
+  id?: number;
   name?: string;
   type?: string;
   x: number;
@@ -80,7 +83,7 @@ export function parseMap(json: any): GameMap {
       } else if (layer.name === "decor") {
         const props: Record<string, string> = {};
         for (const p of o.properties ?? []) props[p.name] = String(p.value);
-        decor.push({ type: o.type ?? "", label: o.name ?? "", props, x: o.x, y: o.y, w: o.width ?? 0, h: o.height ?? 0 });
+        decor.push({ id: o.id ?? decor.length, type: o.type ?? "", label: o.name ?? "", props, x: o.x, y: o.y, w: o.width ?? 0, h: o.height ?? 0 });
       } else if (layer.name === "zones") {
         if (o.type === "spawn") {
           spawn = { x: o.x + (o.width ?? 0) / 2, y: o.y + (o.height ?? 0) / 2 };

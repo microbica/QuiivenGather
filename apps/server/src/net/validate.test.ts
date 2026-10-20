@@ -193,3 +193,28 @@ describe("pizarra colaborativa", () => {
     expect(sanitizeBoardScene({})).toBeNull();
   });
 });
+
+describe("desks", () => {
+  it("accepts only generator desk ids", async () => {
+    const { validDeskId } = await import("./validate.js");
+    expect(validDeskId(100512)).toBe(100512);
+    expect(validDeskId(12)).toBeNull();
+    expect(validDeskId("100512")).toBeNull();
+    expect(validDeskId(100512.5)).toBeNull();
+  });
+  it("keeps only known decoration keys with safe values", async () => {
+    const { sanitizeDeskConfig } = await import("./validate.js");
+    const out = JSON.parse(
+      sanitizeDeskConfig({ material: "roble", chairColor: "#FF7442", left: "<script>", floor: "planta-grande", evil: "x", right: 3 }),
+    );
+    expect(out).toEqual({ material: "roble", chairColor: "#FF7442", floor: "planta-grande" });
+  });
+});
+
+describe("meeting rooms", () => {
+  it("knows which zones are meeting rooms", async () => {
+    const { isMeetingRoom } = await import("@quiiven/protocol");
+    expect(["sala-1", "sala-juntas", "cabina-3", "ventas-sala"].every(isMeetingRoom)).toBe(true);
+    expect(["tech", "rrhh", "salamandra", "auditorio"].some(isMeetingRoom)).toBe(false);
+  });
+});

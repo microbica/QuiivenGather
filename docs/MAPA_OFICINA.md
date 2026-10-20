@@ -26,28 +26,45 @@ Inspirado en la plantilla *great-place-to-work* de WorkAdventure, adaptado a la 
 
 ## Puestos por equipo
 
-Fuente: Airtable · Usuarios activos, Equipos Ventas y Equipos Marketing (octubre 2026), más Finanzas (4), Talento Humano (2) y CEO (1) indicados por el equipo. Cada sala tiene puestos para su gente y uno o dos de sobra.
+Fuente: Airtable · Usuarios activos, Equipos Ventas y Equipos Marketing (octubre 2026), más Finanzas (4), Talento Humano (2) y CEO (1) indicados por el equipo. Cada oficina de equipo se llena con todos los escritorios que caben (mínimo personas + 2), para que cada integrante reclame el suyo y haya puestos para gente nueva.
 
 | Sala | Personas | Escritorios |
 |---|---|---|
 | Ventas · Equipo Jenn | 6 | 8 |
-| Ventas · Equipo Juanfer | 4 | 6 |
-| Ventas · Equipo Juanes | 3 | 4 |
+| Ventas · Equipo Juanfer | 4 | 8 |
+| Ventas · Equipo Juanes | 3 | 8 |
 | Ventas · Equipo Bahamon | 2 | 4 |
-| Dirección Comercial | 1 (Andrés Serna) | 2 |
-| MKT COL · Célula 1 Sara & Manu | 4 | 6 |
-| MKT COL · Célula 2 Juli & Bri | 4 | 6 |
-| MKT COL+GT · Célula 3 Cin & Andrew | 2 | 4 |
-| MKT GT+MX · Célula 1 Vivi & Mari | 2 | 4 |
-| MKT GT+MX · Célula 2 JuanDa & Carlos | 3 | 4 |
-| MKT GT+MX · Célula 3 Camilo & MariWar | 3 | 4 |
-| Tech | 5 | 6 |
-| Operaciones | 4 | 6 |
-| Finanzas | 4 | 5 |
-| Talento Humano | 2 | 3 |
+| Dirección Comercial | 1 (Andrés Serna) | 4 |
+| MKT COL · Célula 1 Sara & Manu | 4 | 8 |
+| MKT COL · Célula 2 Juli & Bri | 4 | 8 |
+| MKT COL+GT · Célula 3 Cin & Andrew | 2 | 8 |
+| MKT GT+MX · Célula 1 Vivi & Mari | 2 | 8 |
+| MKT GT+MX · Célula 2 JuanDa & Carlos | 3 | 8 |
+| MKT GT+MX · Célula 3 Camilo & MariWar | 3 | 8 |
+| Tech | 5 | 12 |
+| Operaciones | 4 | 12 |
+| Finanzas | 4 | 8 |
+| Talento Humano | 2 | 4 |
 | Oficina CEO | 1 | 1 |
 
-En Airtable hay una persona activa de Diseño (Marketing) sin nombre ni célula; tiene puesto libre en las células de Marketing.
+Para cambiar el número de personas de un equipo se edita `people` en `scripts/gen-map.mjs`; el generador falla si no caben personas + 2.
+
+### Mi escritorio
+
+- Cada persona reclama **un** escritorio (sentarse → *Hacer mi escritorio*) y lo decora. Un escritorio tiene un solo dueño: el servidor rechaza reclamar uno ocupado.
+- Se guarda en la tabla `desks` (migración `007_desks.sql`) y viaja en `GameState.desks`, así todos ven los escritorios decorados con el nombre de su dueño. En el estado va una llave opaca por persona, nunca el email.
+- El id de cada escritorio sale de su casilla (`100000 + x * 100 + y`), así que no cambia al regenerar el mapa mientras el escritorio no se mueva.
+- Un admin puede liberar el escritorio de alguien (`desk-release` con `deskId`).
+
+### Escritorio automático por equipo (Airtable)
+
+- La primera vez que alguien entra, el servidor busca su correo en Airtable (tabla *Usuarios*, solo activos y solo lectura) y le asigna el primer escritorio libre de la oficina de su equipo:
+  - Primero mira el **Equipo Comercial** o la **célula de Marketing**.
+  - Si no tiene, usa el **área**: Tech, Operaciones, Ventas (Dirección Comercial), Finanzas o Talento Humano.
+- La correspondencia equipo → oficina está en `apps/server/src/teams.ts`, con los ids de registro de Airtable. Si se crea un equipo o una célula nueva, se agrega ahí y se crea su oficina en el mapa.
+- Se asigna una sola vez por persona (tabla `desk_auto`): si después suelta o cambia su escritorio, no se le vuelve a asignar.
+- Necesita la variable `AIRTABLE_TOKEN`: un token personal de Airtable con permiso `data.records:read` sobre la base, guardado como secret `AIRTABLE_TOKEN` en GitHub. Sin token, la asignación automática queda apagada y todo lo demás funciona igual.
+- `scripts/gen-map.mjs` genera `apps/web/public/desks.json`, que dice a qué oficina pertenece cada escritorio.
 
 ## Zonas y audio
 
